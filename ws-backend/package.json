@@ -1,0 +1,30 @@
+{
+  "name": "ws-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "@types/dotenv": "^8.2.3",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.13.14",
+    "@types/ws": "^8.18.0",
+    "bullmq": "^5.47.1",
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.6.0",
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.5.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3"
+  }
+}
