@@ -27,7 +27,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/v1/user", userRouter);
-app.use("/api/v1/room", roomRouter);
+app.use("/api/v1/rooms", roomRouter);
 
 app.listen(port, () => {
   console.log(`api running on ${port}`);

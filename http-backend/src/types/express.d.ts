@@ -1,10 +1,16 @@
-import { JwtPayload } from "jsonwebtoken";
-
 declare global {
   namespace Express {
     interface Request {
-      userId?: string; // or number, depending on your ID type
-      user?: JwtPayload; // if you need full decoded token
+      userId?: string; // Clerk user ID from token.sub
+      auth?: {
+        userId: string;
+        sessionId: string;
+        sessionClaims?: Record<string, any>;
+        orgId?: string;
+        orgRole?: string;
+        orgSlug?: string;
+        orgPermissions?: string[];
+      };
     }
   }
 }

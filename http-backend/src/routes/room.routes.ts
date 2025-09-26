@@ -3,10 +3,12 @@ import {
   createRoom,
   getElements,
   getRoom,
+  getRooms,
 } from "../controllers/room.controller";
 import { middleware } from "../middlewares/auth.middleware";
 
 const router = Router();
+router.get("/", middleware, getRooms);
 
 router.post("/", middleware, createRoom);
 
