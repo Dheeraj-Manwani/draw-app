@@ -64,6 +64,9 @@ export function drawElement(
     case "embed":
       drawEmbed(ctx, element);
       break;
+    case "laser":
+      drawLaser(ctx, element);
+      break;
   }
 
   ctx.restore();
@@ -276,11 +279,74 @@ export function getElementBounds(element: CanvasElement) {
 function drawImage(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   if (!element.imageData) return;
 
-  const img = new Image();
-  img.onload = () => {
-    ctx.drawImage(img, element.x, element.y, element.width, element.height);
-  };
-  img.src = element.imageData;
+  // Use cached image if available, otherwise create and cache it
+  if (!element.cachedImage) {
+    const img = new Image();
+    img.onload = () => {
+      element.cachedImage = img;
+      // Only trigger redraw once when image first loads
+      if (element.onImageLoad && !element.imageLoaded) {
+        element.imageLoaded = true;
+        element.onImageLoad();
+      }
+    };
+    img.onerror = (error) => {
+      console.error("Error loading image for element:", element.id, error);
+    };
+    img.src = element.imageData;
+
+    // Draw a placeholder while image loads
+    ctx.save();
+    ctx.fillStyle = "#f3f4f6";
+    ctx.fillRect(element.x, element.y, element.width, element.height);
+    ctx.strokeStyle = "#d1d5db";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(element.x, element.y, element.width, element.height);
+
+    // Draw loading text
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      "Loading...",
+      element.x + element.width / 2,
+      element.y + element.height / 2
+    );
+    ctx.restore();
+    return;
+  }
+
+  // Draw the cached image
+  try {
+    ctx.drawImage(
+      element.cachedImage,
+      element.x,
+      element.y,
+      element.width,
+      element.height
+    );
+  } catch (error) {
+    console.error("Error drawing image:", error);
+    // Draw error placeholder
+    ctx.save();
+    ctx.fillStyle = "#fef2f2";
+    ctx.fillRect(element.x, element.y, element.width, element.height);
+    ctx.strokeStyle = "#fca5a5";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(element.x, element.y, element.width, element.height);
+
+    ctx.fillStyle = "#dc2626";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      "Error",
+      element.x + element.width / 2,
+      element.y + element.height / 2
+    );
+    ctx.restore();
+  }
 }
 
 function drawEmbed(ctx: CanvasRenderingContext2D, element: CanvasElement) {
@@ -311,6 +377,61 @@ function drawEmbed(ctx: CanvasRenderingContext2D, element: CanvasElement) {
     element.x + element.width / 2,
     element.y + element.height / 2 + 10
   );
+}
+
+function drawLaser(ctx: CanvasRenderingContext2D, element: CanvasElement) {
+  const points = element.data?.points || [];
+  if (points.length === 0) return;
+
+  ctx.save();
+  ctx.strokeStyle = element.strokeColor;
+  ctx.lineWidth = element.strokeWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.globalAlpha = element.opacity;
+
+  // Add laser glow effect
+  ctx.shadowBlur = 15;
+  ctx.shadowColor = element.strokeColor;
+
+  if (points.length === 1) {
+    // Draw single point as a circle
+    const point = points[0];
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, element.strokeWidth / 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (points.length > 1) {
+    // Draw smooth curve through points
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+
+    if (points.length === 2) {
+      // Simple line for two points
+      ctx.lineTo(points[1].x, points[1].y);
+    } else {
+      // Smooth curve for multiple points using quadratic curves
+      for (let i = 1; i < points.length - 1; i++) {
+        const currentPoint = points[i];
+        const nextPoint = points[i + 1];
+        const controlX = (currentPoint.x + nextPoint.x) / 2;
+        const controlY = (currentPoint.y + nextPoint.y) / 2;
+        ctx.quadraticCurveTo(
+          currentPoint.x,
+          currentPoint.y,
+          controlX,
+          controlY
+        );
+      }
+
+      // Draw to the last point
+      const lastPoint = points[points.length - 1];
+      ctx.lineTo(lastPoint.x, lastPoint.y);
+    }
+
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 export function isPointInBounds(

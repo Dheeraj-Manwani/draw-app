@@ -33,9 +33,11 @@ interface CanvasProps {
   backgroundType: string;
   backgroundColor: string;
   collaborativeUsers: CollaborativeUser[];
+  toolLocked: boolean;
   onElementCreate: (element: CanvasElement, onAdded?: () => void) => void;
   onElementUpdate: (id: string, updates: Partial<CanvasElement>) => void;
   onElementSelect: (id: string, multiSelect?: boolean) => void;
+  onSelectMultipleElements: (ids: string[], addToSelection?: boolean) => void;
   onElementDelete: (id: string) => void;
   onClearSelection: () => void;
   onPanChange: (panX: number, panY: number) => void;
@@ -52,13 +54,15 @@ export default function Canvas({
   zoom,
   panX,
   panY,
-  gridVisible,
+  gridVisible: _gridVisible,
   backgroundType,
   backgroundColor,
   collaborativeUsers,
+  toolLocked,
   onElementCreate,
   onElementUpdate,
   onElementSelect,
+  onSelectMultipleElements,
   onElementDelete,
   onClearSelection,
   onPanChange,
@@ -97,9 +101,20 @@ export default function Canvas({
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [moveStart, setMoveStart] = useState<Point | null>(null);
   const [originalElementPositions, setOriginalElementPositions] = useState<
-    Map<string, { x: number; y: number }>
+    Map<string, { x: number; y: number; points?: Point[] }>
   >(new Map());
   const [cursorState, setCursorState] = useState<string>("default");
+  const [laserElements, setLaserElements] = useState<CanvasElement[]>([]);
+  const [isLaserDrawing, setIsLaserDrawing] = useState(false);
+  const [currentLaserPath, setCurrentLaserPath] = useState<Point[]>([]);
+  const [imageLoadCounter, setImageLoadCounter] = useState(0);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionRect, setSelectionRect] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
 
   // Function to determine cursor state
   const getCursorState = useCallback(() => {
@@ -123,11 +138,13 @@ export default function Canvas({
       }
     }
     if (isPanning) return "grabbing";
+    if (isSelecting) return "crosshair";
     if (tool === "hand") return "grab";
     if (tool === "select") return "default";
     if (tool === "eraser") return "pointer";
+    if (tool === "laser") return "laser";
     return "crosshair";
-  }, [isMoving, isResizing, resizeHandle, isPanning, tool]);
+  }, [isMoving, isResizing, resizeHandle, isPanning, isSelecting, tool]);
 
   // Check if any elements are visible in the current viewport
   const hasVisibleElements = useCallback(() => {
@@ -201,6 +218,10 @@ export default function Canvas({
           locked: false,
           zIndex: elements.length,
           imageData,
+          onImageLoad: () => {
+            // Force a redraw by incrementing the counter
+            setImageLoadCounter((prev) => prev + 1);
+          },
         };
 
         onElementCreate(newElement);
@@ -296,6 +317,170 @@ export default function Canvas({
       y: e.clientY - rect.top,
     };
   }, []);
+
+  const drawSelectionRectangle = useCallback(
+    (ctx: CanvasRenderingContext2D) => {
+      if (!isSelecting || !selectionRect) return;
+
+      const { startX, startY, endX, endY } = selectionRect;
+      const x = Math.min(startX, endX);
+      const y = Math.min(startY, endY);
+      const width = Math.abs(endX - startX);
+      const height = Math.abs(endY - startY);
+
+      ctx.save();
+      ctx.strokeStyle = "hsl(221, 83%, 53%)";
+      ctx.fillStyle = "rgba(59, 130, 246, 0.1)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]);
+
+      // Draw selection rectangle
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
+
+      ctx.restore();
+    },
+    [isSelecting, selectionRect]
+  );
+
+  // Helper function to calculate distance from point to line
+  const distanceToLine = useCallback(
+    (
+      px: number,
+      py: number,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number
+    ): number => {
+      const A = px - x1;
+      const B = py - y1;
+      const C = x2 - x1;
+      const D = y2 - y1;
+
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let param = -1;
+      if (lenSq !== 0) {
+        param = dot / lenSq;
+      }
+
+      let xx, yy;
+
+      if (param < 0) {
+        xx = x1;
+        yy = y1;
+      } else if (param > 1) {
+        xx = x2;
+        yy = y2;
+      } else {
+        xx = x1 + param * C;
+        yy = y1 + param * D;
+      }
+
+      const dx = px - xx;
+      const dy = py - yy;
+      return Math.sqrt(dx * dx + dy * dy);
+    },
+    []
+  );
+
+  const drawHoverPreview = useCallback(
+    (ctx: CanvasRenderingContext2D) => {
+      if (
+        tool === "select" &&
+        hoveredElement &&
+        !selectedElementIds.includes(hoveredElement.id)
+      ) {
+        let x, y, width, height;
+
+        if (
+          hoveredElement.type === "freehand" ||
+          hoveredElement.type === "eraser" ||
+          hoveredElement.type === "laser"
+        ) {
+          // Calculate bounding box from path points
+          const points = hoveredElement.data?.points || [];
+          if (points.length === 0) return;
+
+          let minX = points[0].x;
+          let maxX = points[0].x;
+          let minY = points[0].y;
+          let maxY = points[0].y;
+
+          for (const point of points) {
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
+          }
+
+          x = minX * zoom + panX;
+          y = minY * zoom + panY;
+          width = (maxX - minX) * zoom;
+          height = (maxY - minY) * zoom;
+        } else {
+          // Use element bounds for other types
+          x = hoveredElement.x * zoom + panX;
+          y = hoveredElement.y * zoom + panY;
+          width = hoveredElement.width * zoom;
+          height = hoveredElement.height * zoom;
+        }
+
+        ctx.save();
+
+        // Special handling for arrows and lines
+        if (hoveredElement.type === "arrow" || hoveredElement.type === "line") {
+          // Draw a thicker line preview for arrows and lines
+          ctx.strokeStyle = "hsl(221, 83%, 53%)";
+          ctx.lineWidth = 3;
+          ctx.setLineDash([5, 5]);
+
+          const startX = x;
+          const startY = y;
+          const endX = x + width;
+          const endY = y + height;
+
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+
+          // For arrows, also draw a preview arrowhead
+          if (hoveredElement.type === "arrow") {
+            const headlen = 15;
+            const angle = Math.atan2(endY - startY, endX - startX);
+
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(
+              endX - headlen * Math.cos(angle - Math.PI / 6),
+              endY - headlen * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(
+              endX - headlen * Math.cos(angle + Math.PI / 6),
+              endY - headlen * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.stroke();
+          }
+        } else {
+          // Standard hover highlight for other elements
+          ctx.strokeStyle = "hsl(221, 83%, 53%)";
+          ctx.fillStyle = "rgba(59, 130, 246, 0.1)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+
+          // Draw hover highlight
+          ctx.fillRect(x, y, width, height);
+          ctx.strokeRect(x, y, width, height);
+        }
+
+        ctx.restore();
+      }
+    },
+    [tool, hoveredElement, selectedElementIds, zoom, panX, panY]
+  );
 
   const drawBackground = useCallback(() => {
     const canvas = canvasRef.current;
@@ -431,6 +616,45 @@ export default function Canvas({
       drawElement(ctx, themeAwareCurrentElement);
     }
 
+    // Draw laser elements with special styling
+    laserElements.forEach((laserElement) => {
+      const timeElapsed = Date.now() - (laserElement.data?.startTime || 0);
+      const fadeProgress = Math.min(timeElapsed / 2000, 1); // 2 second fade
+      const opacity = 0.8 * (1 - fadeProgress);
+
+      if (opacity > 0) {
+        const laserElementWithOpacity = {
+          ...laserElement,
+          opacity,
+          strokeColor: "#ff0000", // Always red for laser
+          strokeWidth: 3,
+        };
+        drawElement(ctx, laserElementWithOpacity);
+      }
+    });
+
+    // Draw current laser path being drawn
+    if (isLaserDrawing && currentLaserPath.length > 0) {
+      const currentLaserElement = {
+        id: "current_laser",
+        type: "laser" as const,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        angle: 0,
+        strokeColor: "#ff0000",
+        fillColor: "transparent",
+        strokeWidth: 3,
+        strokeStyle: "solid" as const,
+        opacity: 0.8,
+        locked: false,
+        zIndex: 1000,
+        data: { points: currentLaserPath },
+      };
+      drawElement(ctx, currentLaserElement);
+    }
+
     // Restore context
     ctx.restore();
 
@@ -440,8 +664,14 @@ export default function Canvas({
     // Draw eraser hover preview
     drawEraserHoverPreview(ctx);
 
+    // Draw hover preview for select tool
+    drawHoverPreview(ctx);
+
     // Draw eraser stroke
     drawEraserStroke(ctx);
+
+    // Draw selection rectangle
+    drawSelectionRectangle(ctx);
 
     // Draw collaborative cursors
     drawCollaborativeCursors(ctx);
@@ -459,6 +689,14 @@ export default function Canvas({
     eraserStroke,
     drawBackground,
     theme,
+    laserElements,
+    isLaserDrawing,
+    currentLaserPath,
+    imageLoadCounter,
+    isSelecting,
+    selectionRect,
+    drawSelectionRectangle,
+    drawHoverPreview,
   ]);
 
   const drawSelectionHandles = useCallback(
@@ -470,7 +708,11 @@ export default function Canvas({
       selectedElements.forEach((element) => {
         let x, y, width, height;
 
-        if (element.type === "freehand" || element.type === "eraser") {
+        if (
+          element.type === "freehand" ||
+          element.type === "eraser" ||
+          element.type === "laser"
+        ) {
           // Calculate bounding box from path points
           const points = element.data?.points || [];
           if (points.length === 0) return;
@@ -492,7 +734,7 @@ export default function Canvas({
           width = (maxX - minX) * zoom;
           height = (maxY - minY) * zoom;
         } else {
-          // Use element bounds for other types
+          // Use element bounds for other types (including images)
           x = element.x * zoom + panX;
           y = element.y * zoom + panY;
           width = element.width * zoom;
@@ -506,6 +748,16 @@ export default function Canvas({
         ctx.setLineDash([5, 5]);
         ctx.strokeRect(x, y, width, height);
 
+        // For path-based elements, also draw a subtle background to make them easier to see
+        if (
+          element.type === "freehand" ||
+          element.type === "eraser" ||
+          element.type === "laser"
+        ) {
+          ctx.fillStyle = "rgba(59, 130, 246, 0.05)";
+          ctx.fillRect(x, y, width, height);
+        }
+
         // Draw handles
         const handleSize = 8;
         ctx.fillStyle = "hsl(221, 83%, 53%)";
@@ -513,21 +765,90 @@ export default function Canvas({
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
 
-        const handles = [
-          { x: x - handleSize / 2, y: y - handleSize / 2 },
-          { x: x + width / 2 - handleSize / 2, y: y - handleSize / 2 },
-          { x: x + width - handleSize / 2, y: y - handleSize / 2 },
-          { x: x + width - handleSize / 2, y: y + height / 2 - handleSize / 2 },
-          { x: x + width - handleSize / 2, y: y + height - handleSize / 2 },
-          { x: x + width / 2 - handleSize / 2, y: y + height - handleSize / 2 },
-          { x: x - handleSize / 2, y: y + height - handleSize / 2 },
-          { x: x - handleSize / 2, y: y + height / 2 - handleSize / 2 },
-        ];
+        // For arrows and lines, draw special start/end handles
+        if (element.type === "arrow" || element.type === "line") {
+          const startX = x;
+          const startY = y;
+          const endX = x + width;
+          const endY = y + height;
 
-        handles.forEach((handle) => {
-          ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
-          ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
-        });
+          const handles = [
+            { x: startX - handleSize / 2, y: startY - handleSize / 2 },
+            { x: endX - handleSize / 2, y: endY - handleSize / 2 },
+          ];
+
+          handles.forEach((handle, index) => {
+            // Draw circular handles for start/end points
+            ctx.beginPath();
+            ctx.arc(
+              handle.x + handleSize / 2,
+              handle.y + handleSize / 2,
+              handleSize / 2,
+              0,
+              2 * Math.PI
+            );
+            ctx.fill();
+            ctx.stroke();
+
+            // Add a small indicator for start vs end
+            if (index === 0) {
+              // Start handle - draw a small circle in the center
+              ctx.fillStyle = "white";
+              ctx.beginPath();
+              ctx.arc(
+                handle.x + handleSize / 2,
+                handle.y + handleSize / 2,
+                2,
+                0,
+                2 * Math.PI
+              );
+              ctx.fill();
+              ctx.fillStyle = "hsl(221, 83%, 53%)"; // Reset fill style
+            } else if (element.type === "arrow") {
+              // End handle for arrow - draw a small arrow indicator
+              ctx.fillStyle = "white";
+              ctx.beginPath();
+              ctx.moveTo(
+                handle.x + handleSize / 2,
+                handle.y + handleSize / 2 - 2
+              );
+              ctx.lineTo(
+                handle.x + handleSize / 2 + 2,
+                handle.y + handleSize / 2 + 2
+              );
+              ctx.lineTo(
+                handle.x + handleSize / 2 - 2,
+                handle.y + handleSize / 2 + 2
+              );
+              ctx.closePath();
+              ctx.fill();
+              ctx.fillStyle = "hsl(221, 83%, 53%)"; // Reset fill style
+            }
+          });
+        } else {
+          // Standard rectangular handles for other elements
+          const handles = [
+            { x: x - handleSize / 2, y: y - handleSize / 2 },
+            { x: x + width / 2 - handleSize / 2, y: y - handleSize / 2 },
+            { x: x + width - handleSize / 2, y: y - handleSize / 2 },
+            {
+              x: x + width - handleSize / 2,
+              y: y + height / 2 - handleSize / 2,
+            },
+            { x: x + width - handleSize / 2, y: y + height - handleSize / 2 },
+            {
+              x: x + width / 2 - handleSize / 2,
+              y: y + height - handleSize / 2,
+            },
+            { x: x - handleSize / 2, y: y + height - handleSize / 2 },
+            { x: x - handleSize / 2, y: y + height / 2 - handleSize / 2 },
+          ];
+
+          handles.forEach((handle) => {
+            ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
+            ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+          });
+        }
 
         ctx.restore();
       });
@@ -631,6 +952,62 @@ export default function Canvas({
     [collaborativeUsers, zoom, panX, panY]
   );
 
+  // Helper function to check if an element intersects with selection rectangle
+  const getElementsInSelectionRect = useCallback(
+    (rect: { startX: number; startY: number; endX: number; endY: number }) => {
+      const x = Math.min(rect.startX, rect.endX);
+      const y = Math.min(rect.startY, rect.endY);
+      const width = Math.abs(rect.endX - rect.startX);
+      const height = Math.abs(rect.endY - rect.startY);
+
+      return elements.filter((element) => {
+        let elementX, elementY, elementWidth, elementHeight;
+
+        if (
+          element.type === "freehand" ||
+          element.type === "eraser" ||
+          element.type === "laser"
+        ) {
+          // For path-based elements, calculate bounds from points
+          const points = element.data?.points || [];
+          if (points.length === 0) return false;
+
+          let minX = points[0].x;
+          let maxX = points[0].x;
+          let minY = points[0].y;
+          let maxY = points[0].y;
+
+          for (const point of points) {
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
+          }
+
+          elementX = minX * zoom + panX;
+          elementY = minY * zoom + panY;
+          elementWidth = (maxX - minX) * zoom;
+          elementHeight = (maxY - minY) * zoom;
+        } else {
+          // For other elements, use element bounds
+          elementX = element.x * zoom + panX;
+          elementY = element.y * zoom + panY;
+          elementWidth = element.width * zoom;
+          elementHeight = element.height * zoom;
+        }
+
+        // Check if element intersects with selection rectangle
+        return (
+          elementX < x + width &&
+          elementX + elementWidth > x &&
+          elementY < y + height &&
+          elementY + elementHeight > y
+        );
+      });
+    },
+    [elements, zoom, panX, panY]
+  );
+
   const handleMouseDown = useCallback(
     (e: MouseEvent) => {
       e.preventDefault();
@@ -677,11 +1054,18 @@ export default function Canvas({
           setMoveStart(canvasPos);
           setCursorState("move");
         } else {
-          onClearSelection();
-          // Start panning
-          setIsPanning(true);
-          setDragStart(mousePos);
-          setCursorState("grabbing");
+          // Start selection rectangle
+          if (!e.shiftKey) {
+            onClearSelection();
+          }
+          setIsSelecting(true);
+          setSelectionRect({
+            startX: mousePos.x,
+            startY: mousePos.y,
+            endX: mousePos.x,
+            endY: mousePos.y,
+          });
+          setCursorState("crosshair");
         }
       } else if (tool === "hand") {
         // Hand tool - start panning
@@ -731,6 +1115,10 @@ export default function Canvas({
       } else if (tool === "embed") {
         // Handle embed tool - open link modal
         setIsEmbedModalOpen(true);
+      } else if (tool === "laser") {
+        // Start laser drawing
+        setIsLaserDrawing(true);
+        setCurrentLaserPath([canvasPos]);
       } else {
         // Start drawing new element
         setIsDrawing(true);
@@ -795,32 +1183,69 @@ export default function Canvas({
           const newStroke = [...eraserStroke, canvasPos];
           setEraserStroke(newStroke);
 
-          // Check for elements that intersect with the current point
+          // Check for elements that intersect with the eraser stroke
           elements.forEach((element) => {
             if (!erasedElements.has(element.id)) {
               let intersects = false;
 
-              if (element.type === "freehand" || element.type === "eraser") {
-                // For freehand/eraser elements, check if point is near any path points
+              if (
+                element.type === "freehand" ||
+                element.type === "eraser" ||
+                element.type === "laser"
+              ) {
+                // For path-based elements, check if eraser stroke intersects with any path points
                 const points = element.data?.points || [];
-                const threshold = 10; // pixels
+                const eraserRadius = 15; // Eraser radius in pixels
+
                 for (const pathPoint of points) {
-                  const distance = Math.sqrt(
-                    Math.pow(canvasPos.x - pathPoint.x, 2) +
-                      Math.pow(canvasPos.y - pathPoint.y, 2)
+                  for (const eraserPoint of newStroke) {
+                    const distance = Math.sqrt(
+                      Math.pow(eraserPoint.x - pathPoint.x, 2) +
+                        Math.pow(eraserPoint.y - pathPoint.y, 2)
+                    );
+                    if (distance <= eraserRadius) {
+                      intersects = true;
+                      break;
+                    }
+                  }
+                  if (intersects) break;
+                }
+              } else if (element.type === "line" || element.type === "arrow") {
+                // For lines and arrows, check if eraser stroke intersects with the line
+                const startX = element.x;
+                const startY = element.y;
+                const endX = element.x + element.width;
+                const endY = element.y + element.height;
+                const eraserRadius = 15;
+
+                for (const eraserPoint of newStroke) {
+                  const distance = distanceToLine(
+                    eraserPoint.x,
+                    eraserPoint.y,
+                    startX,
+                    startY,
+                    endX,
+                    endY
                   );
-                  if (distance <= threshold) {
+                  if (distance <= eraserRadius) {
                     intersects = true;
                     break;
                   }
                 }
               } else {
-                // For other elements, use rectangular bounds
-                intersects =
-                  canvasPos.x >= element.x &&
-                  canvasPos.x <= element.x + element.width &&
-                  canvasPos.y >= element.y &&
-                  canvasPos.y <= element.y + element.height;
+                // For other elements, check if eraser stroke intersects with rectangular bounds
+                const eraserRadius = 15;
+                for (const eraserPoint of newStroke) {
+                  if (
+                    eraserPoint.x >= element.x - eraserRadius &&
+                    eraserPoint.x <= element.x + element.width + eraserRadius &&
+                    eraserPoint.y >= element.y - eraserRadius &&
+                    eraserPoint.y <= element.y + element.height + eraserRadius
+                  ) {
+                    intersects = true;
+                    break;
+                  }
+                }
               }
 
               if (intersects) {
@@ -834,36 +1259,61 @@ export default function Canvas({
           const hoveredEl = getElementAtPoint(canvasPos);
           setHoveredElement(hoveredEl);
         }
+      } else if (tool === "laser" && isLaserDrawing) {
+        // Add point to current laser path
+        setCurrentLaserPath((prev) => [...prev, canvasPos]);
+      } else if (isSelecting && selectionRect) {
+        // Update selection rectangle
+        setSelectionRect((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            endX: mousePos.x,
+            endY: mousePos.y,
+          };
+        });
       } else {
-        setHoveredElement(null);
+        // Show hover effect for elements when in select mode
+        if (tool === "select") {
+          const hoveredEl = getElementAtPoint(canvasPos);
+          setHoveredElement(hoveredEl);
 
-        // Check if hovering over resize handles when in select mode
-        if (tool === "select" && selectedElementIds.length > 0) {
-          const handle = getResizeHandleAtPoint(mousePos);
-          if (handle) {
-            switch (handle) {
-              case "nw":
-              case "se":
-                setCursorState("nw-resize");
-                break;
-              case "ne":
-              case "sw":
-                setCursorState("ne-resize");
-                break;
-              case "n":
-              case "s":
-                setCursorState("ns-resize");
-                break;
-              case "e":
-              case "w":
-                setCursorState("ew-resize");
-                break;
-              default:
-                setCursorState("default");
+          // Check if hovering over resize handles when in select mode
+          if (selectedElementIds.length > 0) {
+            const handle = getResizeHandleAtPoint(mousePos);
+            if (handle) {
+              switch (handle) {
+                case "nw":
+                case "se":
+                  setCursorState("nw-resize");
+                  break;
+                case "ne":
+                case "sw":
+                  setCursorState("ne-resize");
+                  break;
+                case "n":
+                case "s":
+                  setCursorState("ns-resize");
+                  break;
+                case "e":
+                case "w":
+                  setCursorState("ew-resize");
+                  break;
+                case "start":
+                case "end":
+                  setCursorState("crosshair"); // Use crosshair for start/end handles
+                  break;
+                default:
+                  setCursorState("default");
+              }
+            } else {
+              setCursorState(hoveredEl ? "move" : "default");
             }
           } else {
-            setCursorState("default");
+            setCursorState(hoveredEl ? "move" : "default");
           }
+        } else {
+          setHoveredElement(null);
         }
       }
 
@@ -875,11 +1325,28 @@ export default function Canvas({
       } else if (isMoving && moveStart) {
         // Store original positions on first move
         if (originalElementPositions.size === 0) {
-          const positions = new Map<string, { x: number; y: number }>();
+          const positions = new Map<
+            string,
+            { x: number; y: number; points?: Point[] }
+          >();
           selectedElementIds.forEach((id) => {
             const element = elements.find((el) => el.id === id);
             if (element) {
-              positions.set(id, { x: element.x, y: element.y });
+              if (
+                element.type === "freehand" ||
+                element.type === "eraser" ||
+                element.type === "laser"
+              ) {
+                // For path-based elements, store the original points
+                positions.set(id, {
+                  x: element.x,
+                  y: element.y,
+                  points: element.data?.points ? [...element.data.points] : [],
+                });
+              } else {
+                // For other elements, store x and y
+                positions.set(id, { x: element.x, y: element.y });
+              }
             }
           });
           setOriginalElementPositions(positions);
@@ -894,9 +1361,13 @@ export default function Canvas({
           if (originalPos) {
             const element = elements.find((el) => el.id === id);
             if (element) {
-              if (element.type === "freehand" || element.type === "eraser") {
-                // For freehand/eraser elements, update all points in the data.points array
-                const originalPoints = element.data?.points || [];
+              if (
+                element.type === "freehand" ||
+                element.type === "eraser" ||
+                element.type === "laser"
+              ) {
+                // For path-based elements, update all points using original points
+                const originalPoints = originalPos.points || [];
                 const updatedPoints = originalPoints.map((point: Point) => ({
                   x: point.x + deltaX,
                   y: point.y + deltaY,
@@ -926,54 +1397,87 @@ export default function Canvas({
         selectedElementIds.forEach((id) => {
           const element = elements.find((el) => el.id === id);
           if (element) {
-            let newX = element.x;
-            let newY = element.y;
-            let newWidth = element.width;
-            let newHeight = element.height;
+            // Handle special start/end resize for arrows and lines
+            if (
+              (element.type === "arrow" || element.type === "line") &&
+              (resizeHandle === "start" || resizeHandle === "end")
+            ) {
+              const currentStartX = element.x;
+              const currentStartY = element.y;
+              const currentEndX = element.x + element.width;
+              const currentEndY = element.y + element.height;
 
-            switch (resizeHandle) {
-              case "nw":
-                newX += deltaX;
-                newY += deltaY;
-                newWidth -= deltaX;
-                newHeight -= deltaY;
-                break;
-              case "n":
-                newY += deltaY;
-                newHeight -= deltaY;
-                break;
-              case "ne":
-                newY += deltaY;
-                newWidth += deltaX;
-                newHeight -= deltaY;
-                break;
-              case "e":
-                newWidth += deltaX;
-                break;
-              case "se":
-                newWidth += deltaX;
-                newHeight += deltaY;
-                break;
-              case "s":
-                newHeight += deltaY;
-                break;
-              case "sw":
-                newX += deltaX;
-                newWidth -= deltaX;
-                newHeight += deltaY;
-                break;
-              case "w":
-                newX += deltaX;
-                newWidth -= deltaX;
-                break;
+              let newStartX = currentStartX;
+              let newStartY = currentStartY;
+              let newEndX = currentEndX;
+              let newEndY = currentEndY;
+
+              if (resizeHandle === "start") {
+                newStartX += deltaX;
+                newStartY += deltaY;
+              } else if (resizeHandle === "end") {
+                newEndX += deltaX;
+                newEndY += deltaY;
+              }
+
+              // Update element with new start/end coordinates
+              onElementUpdate(id, {
+                x: newStartX,
+                y: newStartY,
+                width: newEndX - newStartX,
+                height: newEndY - newStartY,
+              });
+            } else {
+              // Standard resize handling for other elements
+              let newX = element.x;
+              let newY = element.y;
+              let newWidth = element.width;
+              let newHeight = element.height;
+
+              switch (resizeHandle) {
+                case "nw":
+                  newX += deltaX;
+                  newY += deltaY;
+                  newWidth -= deltaX;
+                  newHeight -= deltaY;
+                  break;
+                case "n":
+                  newY += deltaY;
+                  newHeight -= deltaY;
+                  break;
+                case "ne":
+                  newY += deltaY;
+                  newWidth += deltaX;
+                  newHeight -= deltaY;
+                  break;
+                case "e":
+                  newWidth += deltaX;
+                  break;
+                case "se":
+                  newWidth += deltaX;
+                  newHeight += deltaY;
+                  break;
+                case "s":
+                  newHeight += deltaY;
+                  break;
+                case "sw":
+                  newX += deltaX;
+                  newWidth -= deltaX;
+                  newHeight += deltaY;
+                  break;
+                case "w":
+                  newX += deltaX;
+                  newWidth -= deltaX;
+                  break;
+              }
+
+              onElementUpdate(id, {
+                x: Math.max(0, newX),
+                y: Math.max(0, newY),
+                width: Math.max(10, newWidth),
+                height: Math.max(10, newHeight),
+              });
             }
-
-            onElementUpdate(id, {
-              x: Math.max(0, newX),
-              y: Math.max(0, newY),
-              width: Math.max(10, newWidth),
-              height: Math.max(10, newHeight),
-            });
           }
         });
         setDragStart(canvasPos);
@@ -1049,6 +1553,36 @@ export default function Canvas({
   );
 
   const handleMouseUp = useCallback(() => {
+    // Handle laser tool finishing
+    if (isLaserDrawing && currentLaserPath.length > 0) {
+      const newLaserElement: CanvasElement = {
+        id: `laser_${Date.now()}_${Math.random()}`,
+        type: "laser",
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        angle: 0,
+        strokeColor: "#ff0000",
+        fillColor: "transparent",
+        strokeWidth: 3,
+        strokeStyle: "solid",
+        opacity: 0.8,
+        locked: false,
+        zIndex: 1000,
+        data: { points: currentLaserPath, startTime: Date.now() },
+      };
+
+      setLaserElements((prev) => [...prev, newLaserElement]);
+
+      // Remove laser element after 2 seconds
+      setTimeout(() => {
+        setLaserElements((prev) =>
+          prev.filter((el) => el.id !== newLaserElement.id)
+        );
+      }, 2000);
+    }
+
     if (isDrawing && currentElement) {
       // Only create element if it has some size or is freehand/eraser with points
       if (
@@ -1061,10 +1595,23 @@ export default function Canvas({
               currentElement.data?.points?.length > 1)
       ) {
         onElementCreate(currentElement, () => {
-          // Auto-select the created element and switch to select tool
-          onElementSelect(currentElement.id);
-          onToolChange("select");
+          // Auto-select the created element
+          // Only switch to select tool if tool is not locked
+          if (!toolLocked && tool !== "freehand") {
+            onElementSelect(currentElement.id);
+            onToolChange("select");
+          }
         });
+      }
+    }
+
+    // Handle selection rectangle completion
+    if (isSelecting && selectionRect) {
+      const elementsInRect = getElementsInSelectionRect(selectionRect);
+      if (elementsInRect.length > 0) {
+        // Select all elements in the rectangle at once
+        const newSelectedIds = elementsInRect.map((element) => element.id);
+        onSelectMultipleElements(newSelectedIds, false); // Replace current selection
       }
     }
 
@@ -1073,6 +1620,9 @@ export default function Canvas({
     setIsErasing(false);
     setIsMoving(false);
     setIsResizing(false);
+    setIsLaserDrawing(false);
+    setIsSelecting(false);
+    setCurrentLaserPath([]);
     setDragStart(null);
     setMoveStart(null);
     setResizeHandle(null);
@@ -1080,6 +1630,7 @@ export default function Canvas({
     setCurrentElement(null);
     setErasedElements(new Set());
     setEraserStroke([]);
+    setSelectionRect(null);
     setCursorState(getCursorState());
   }, [
     isDrawing,
@@ -1089,6 +1640,12 @@ export default function Canvas({
     onElementSelect,
     onToolChange,
     getCursorState,
+    isLaserDrawing,
+    currentLaserPath,
+    isSelecting,
+    selectionRect,
+    getElementsInSelectionRect,
+    onElementSelect,
   ]);
 
   const handleWheel = useCallback(
@@ -1128,13 +1685,19 @@ export default function Canvas({
       for (let i = elements.length - 1; i >= 0; i--) {
         const element = elements[i];
 
-        if (element.type === "freehand" || element.type === "eraser") {
-          // For freehand/eraser elements, check if point is near any of the path points
+        if (
+          element.type === "freehand" ||
+          element.type === "eraser" ||
+          element.type === "laser"
+        ) {
+          // For path-based elements, check if point is near the path
           const points = element.data?.points || [];
           if (points.length === 0) continue;
 
-          // Check if point is within a reasonable distance of any path point
-          const threshold = 10; // pixels
+          // Use a larger threshold for easier selection
+          const threshold = 20; // pixels - increased from 10
+
+          // First check if point is near any path point
           for (const pathPoint of points) {
             const distance = Math.sqrt(
               Math.pow(point.x - pathPoint.x, 2) +
@@ -1144,8 +1707,51 @@ export default function Canvas({
               return element;
             }
           }
-        } else if (element.type === "text") {
-          // For text elements, check if point is within the text bounds
+
+          // Also check if point is near any line segment between consecutive points
+          for (let i = 0; i < points.length - 1; i++) {
+            const p1 = points[i];
+            const p2 = points[i + 1];
+            const distance = distanceToLine(
+              point.x,
+              point.y,
+              p1.x,
+              p1.y,
+              p2.x,
+              p2.y
+            );
+            if (distance <= threshold) {
+              return element;
+            }
+          }
+        } else if (element.type === "line" || element.type === "arrow") {
+          // For lines and arrows, use distance to line with larger threshold
+          const startX = element.x;
+          const startY = element.y;
+          const endX = element.x + element.width;
+          const endY = element.y + element.height;
+
+          // Use a larger threshold for arrows to make them easier to select
+          const threshold = element.type === "arrow" ? 25 : 15;
+
+          const distance = distanceToLine(
+            point.x,
+            point.y,
+            startX,
+            startY,
+            endX,
+            endY
+          );
+
+          if (distance <= threshold) {
+            return element;
+          }
+        } else if (
+          element.type === "text" ||
+          element.type === "image" ||
+          element.type === "embed"
+        ) {
+          // For text, image, and embed elements, check if point is within the element bounds
           if (
             point.x >= element.x &&
             point.x <= element.x + element.width &&
@@ -1168,7 +1774,7 @@ export default function Canvas({
       }
       return null;
     },
-    [elements]
+    [elements, distanceToLine]
   );
 
   const getResizeHandleAtPoint = useCallback(
@@ -1180,7 +1786,11 @@ export default function Canvas({
       for (const element of selectedElements) {
         let x, y, width, height;
 
-        if (element.type === "freehand" || element.type === "eraser") {
+        if (
+          element.type === "freehand" ||
+          element.type === "eraser" ||
+          element.type === "laser"
+        ) {
           // Calculate bounding box from path points
           const points = element.data?.points || [];
           if (points.length === 0) continue;
@@ -1202,7 +1812,7 @@ export default function Canvas({
           width = (maxX - minX) * zoom;
           height = (maxY - minY) * zoom;
         } else {
-          // Use element bounds for other types
+          // Use element bounds for other types (including images)
           x = element.x * zoom + panX;
           y = element.y * zoom + panY;
           width = element.width * zoom;
@@ -1211,41 +1821,74 @@ export default function Canvas({
 
         const handleSize = 8;
 
-        const handles = [
-          { id: "nw", x: x - handleSize / 2, y: y - handleSize / 2 },
-          { id: "n", x: x + width / 2 - handleSize / 2, y: y - handleSize / 2 },
-          { id: "ne", x: x + width - handleSize / 2, y: y - handleSize / 2 },
-          {
-            id: "e",
-            x: x + width - handleSize / 2,
-            y: y + height / 2 - handleSize / 2,
-          },
-          {
-            id: "se",
-            x: x + width - handleSize / 2,
-            y: y + height - handleSize / 2,
-          },
-          {
-            id: "s",
-            x: x + width / 2 - handleSize / 2,
-            y: y + height - handleSize / 2,
-          },
-          { id: "sw", x: x - handleSize / 2, y: y + height - handleSize / 2 },
-          {
-            id: "w",
-            x: x - handleSize / 2,
-            y: y + height / 2 - handleSize / 2,
-          },
-        ];
+        // For arrows and lines, add special start/end handles for easier manipulation
+        if (element.type === "arrow" || element.type === "line") {
+          const startX = x;
+          const startY = y;
+          const endX = x + width;
+          const endY = y + height;
 
-        for (const handle of handles) {
-          if (
-            point.x >= handle.x &&
-            point.x <= handle.x + handleSize &&
-            point.y >= handle.y &&
-            point.y <= handle.y + handleSize
-          ) {
-            return handle.id;
+          const handles = [
+            {
+              id: "start",
+              x: startX - handleSize / 2,
+              y: startY - handleSize / 2,
+            },
+            { id: "end", x: endX - handleSize / 2, y: endY - handleSize / 2 },
+          ];
+
+          for (const handle of handles) {
+            if (
+              point.x >= handle.x &&
+              point.x <= handle.x + handleSize &&
+              point.y >= handle.y &&
+              point.y <= handle.y + handleSize
+            ) {
+              return handle.id;
+            }
+          }
+        } else {
+          // Standard handles for other elements
+          const handles = [
+            { id: "nw", x: x - handleSize / 2, y: y - handleSize / 2 },
+            {
+              id: "n",
+              x: x + width / 2 - handleSize / 2,
+              y: y - handleSize / 2,
+            },
+            { id: "ne", x: x + width - handleSize / 2, y: y - handleSize / 2 },
+            {
+              id: "e",
+              x: x + width - handleSize / 2,
+              y: y + height / 2 - handleSize / 2,
+            },
+            {
+              id: "se",
+              x: x + width - handleSize / 2,
+              y: y + height - handleSize / 2,
+            },
+            {
+              id: "s",
+              x: x + width / 2 - handleSize / 2,
+              y: y + height - handleSize / 2,
+            },
+            { id: "sw", x: x - handleSize / 2, y: y + height - handleSize / 2 },
+            {
+              id: "w",
+              x: x - handleSize / 2,
+              y: y + height / 2 - handleSize / 2,
+            },
+          ];
+
+          for (const handle of handles) {
+            if (
+              point.x >= handle.x &&
+              point.x <= handle.x + handleSize &&
+              point.y >= handle.y &&
+              point.y <= handle.y + handleSize
+            ) {
+              return handle.id;
+            }
           }
         }
       }
@@ -1493,8 +2136,15 @@ export default function Canvas({
     <div className="relative w-full h-full overflow-hidden bg-white dark:bg-gray-900">
       <canvas
         ref={canvasRef}
-        className={`absolute inset-0 w-full h-full cursor-${cursorState}`}
-        style={{ cursor: cursorState }}
+        className={`absolute inset-0 w-full h-full ${
+          cursorState === "laser" ? "cursor-laser" : `cursor-${cursorState}`
+        }`}
+        style={{
+          cursor:
+            cursorState === "laser"
+              ? "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjYiIGZpbGw9IiNmZjAwMDAiLz4KPC9zdmc+Cg==') 8 8, auto"
+              : cursorState,
+        }}
         data-testid="main-canvas"
       />
 

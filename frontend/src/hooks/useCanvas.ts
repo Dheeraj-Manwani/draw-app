@@ -19,6 +19,7 @@ const INITIAL_STATE: CanvasState = {
   gridVisible: true,
   backgroundType: "none",
   backgroundColor: "#ffffff",
+  toolLocked: false,
 };
 
 export function useCanvas() {
@@ -114,6 +115,21 @@ export function useCanvas() {
     updateStateNoHistory({ selectedElementIds: [] });
   }, [updateStateNoHistory]);
 
+  const selectMultipleElements = useCallback(
+    (ids: string[], addToSelection = false) => {
+      const newSelection = addToSelection
+        ? [
+            ...state.selectedElementIds,
+            ...ids.filter((id) => !state.selectedElementIds.includes(id)),
+          ]
+        : ids;
+      updateStateNoHistory({
+        selectedElementIds: newSelection,
+      });
+    },
+    [state.selectedElementIds, updateStateNoHistory]
+  );
+
   const setTool = useCallback(
     (tool: string) => {
       // Only clear selection when switching away from select tool
@@ -156,6 +172,10 @@ export function useCanvas() {
     },
     [updateStateNoHistory]
   );
+
+  const toggleToolLock = useCallback(() => {
+    updateStateNoHistory({ toolLocked: !state.toolLocked });
+  }, [state.toolLocked, updateStateNoHistory]);
 
   const undo = useCallback(() => {
     if (historyIndex >= 0) {
@@ -222,12 +242,62 @@ export function useCanvas() {
     [pushToHistory]
   );
 
+  // Save drawing to localStorage with a specific key
+  const saveToLocalStorage = useCallback(
+    (
+      key: string,
+      drawingData: {
+        elements: CanvasElement[];
+        name?: string;
+        backgroundType?: BackgroundType;
+        backgroundColor?: string;
+      }
+    ) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(drawingData));
+      } catch (error) {
+        console.error("Error saving to localStorage:", error);
+      }
+    },
+    []
+  );
+
+  // Load drawing from localStorage with a specific key
+  const loadFromLocalStorage = useCallback(
+    (key: string) => {
+      try {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          const drawingData = JSON.parse(saved);
+          if (drawingData.elements && Array.isArray(drawingData.elements)) {
+            loadElements(drawingData.elements);
+
+            // Update other state properties if they exist
+            if (drawingData.backgroundType) {
+              setBackgroundType(drawingData.backgroundType);
+            }
+            if (drawingData.backgroundColor) {
+              setBackgroundColor(drawingData.backgroundColor);
+            }
+
+            return drawingData;
+          }
+        }
+      } catch (error) {
+        console.error("Error loading from localStorage:", error);
+      }
+      return null;
+    },
+    [loadElements, setBackgroundType, setBackgroundColor]
+  );
+
   return {
     state,
     addElement,
     updateElement,
     deleteElement,
     selectElement,
+    selectMultipleElements,
     clearSelection,
     setTool,
     setZoom,
@@ -235,6 +305,7 @@ export function useCanvas() {
     toggleGrid,
     setBackgroundType,
     setBackgroundColor,
+    toggleToolLock,
     undo,
     redo,
     canUndo,
@@ -242,6 +313,8 @@ export function useCanvas() {
     getElementAtPoint,
     getSelectedElements,
     loadElements,
+    saveToLocalStorage,
+    loadFromLocalStorage,
   };
 }
 

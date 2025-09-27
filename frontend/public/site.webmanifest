@@ -1,0 +1,22 @@
+{
+  "name": "Draw It - Collaborative Drawing App",
+  "short_name": "Draw It",
+  "description": "Create beautiful drawings and collaborate in real-time with Draw It. Share your creativity with others and bring your ideas to life.",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#9d00ff",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/"
+}

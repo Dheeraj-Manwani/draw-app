@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { useUser, useAuth, SignOutButton } from "@clerk/clerk-react";
+import { useUser, useAuth } from "@clerk/clerk-react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
+import MetaTags from "@/components/MetaTags";
+import UserAvatar from "@/components/UserAvatar";
 import {
   Card,
   CardContent,
@@ -23,8 +25,8 @@ import {
   Trash2,
   Download,
   Share,
-  LogOut,
   Image,
+  Pencil,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -35,6 +37,7 @@ import {
 import { ThemeToggle } from "@/components/ThemeToggle";
 import LoginModal from "@/components/LoginModal";
 import CoverImageModal from "@/components/CoverImageModal";
+import LottieLoader from "@/components/LottieLoader";
 import { type SavedDrawing } from "@/types/canvas";
 import { coverImages } from "@/utils/DrawingIcon";
 
@@ -51,6 +54,8 @@ export default function Home() {
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(
     null
   );
+  const [editingDrawingId, setEditingDrawingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
 
   // Handle authentication and load drawings
   useEffect(() => {
@@ -169,9 +174,10 @@ export default function Home() {
   };
 
   // Update cover image for a drawing
-  const updateCoverImage = (coverImageIndex: number) => {
+  const updateCoverImage = async (coverImageIndex: number) => {
     if (!selectedDrawingId) return;
 
+    // Update local state immediately for better UX
     setDrawings((prev) =>
       prev.map((drawing) =>
         drawing.id === selectedDrawingId
@@ -180,8 +186,130 @@ export default function Home() {
       )
     );
 
-    // TODO: Update the backend with the new cover image
-    // For now, we'll just update the local state
+    // Update the backend with the new cover image
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      if (backendUrl) {
+        const token = await getToken();
+        const response = await fetch(
+          `${backendUrl}/rooms/${selectedDrawingId}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              coverImage: coverImageIndex,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          console.error("Failed to update cover image on backend");
+          // Revert local state on failure
+          setDrawings((prev) =>
+            prev.map((drawing) =>
+              drawing.id === selectedDrawingId
+                ? {
+                    ...drawing,
+                    coverImage:
+                      drawings.find((d) => d.id === selectedDrawingId)
+                        ?.coverImage ?? 0,
+                  }
+                : drawing
+            )
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error updating cover image:", error);
+      // Revert local state on failure
+      setDrawings((prev) =>
+        prev.map((drawing) =>
+          drawing.id === selectedDrawingId
+            ? {
+                ...drawing,
+                coverImage:
+                  drawings.find((d) => d.id === selectedDrawingId)
+                    ?.coverImage ?? 0,
+              }
+            : drawing
+        )
+      );
+    }
+  };
+
+  // Start editing a drawing name
+  const startEditingName = (drawingId: string, currentName: string) => {
+    setEditingDrawingId(drawingId);
+    setEditingName(currentName);
+  };
+
+  // Save the edited name
+  const saveDrawingName = async (drawingId: string) => {
+    if (!editingName.trim()) return;
+
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      if (backendUrl) {
+        const token = await getToken();
+        const response = await fetch(`${backendUrl}/rooms/${drawingId}`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: editingName.trim(),
+          }),
+        });
+
+        if (!response.ok) {
+          console.error("Failed to update drawing name on backend");
+        }
+      }
+
+      // Update local state
+      setDrawings((prev) =>
+        prev.map((drawing) =>
+          drawing.id === drawingId
+            ? { ...drawing, name: editingName.trim() }
+            : drawing
+        )
+      );
+
+      // Exit editing mode
+      setEditingDrawingId(null);
+      setEditingName("");
+    } catch (error) {
+      console.error("Error updating drawing name:", error);
+      // Still update local state even if backend fails
+      setDrawings((prev) =>
+        prev.map((drawing) =>
+          drawing.id === drawingId
+            ? { ...drawing, name: editingName.trim() }
+            : drawing
+        )
+      );
+      setEditingDrawingId(null);
+      setEditingName("");
+    }
+  };
+
+  // Cancel editing
+  const cancelEditing = () => {
+    setEditingDrawingId(null);
+    setEditingName("");
+  };
+
+  // Handle key press in input
+  const handleKeyPress = (e: React.KeyboardEvent, drawingId: string) => {
+    if (e.key === "Enter") {
+      saveDrawingName(drawingId);
+    } else if (e.key === "Escape") {
+      cancelEditing();
+    }
   };
 
   // Format date
@@ -200,11 +328,11 @@ export default function Home() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 rounded-full gradient-brand animate-pulse"></div>
-          <div className="text-gray-600 dark:text-gray-300 font-medium">
+        <div className="flex flex-col items-center">
+          <LottieLoader size={250} />
+          {/* <div className="text-gray-600 dark:text-gray-300 font-medium text-lg">
             Loading drawings...
-          </div>
+          </div> */}
         </div>
       </div>
     );
@@ -223,15 +351,27 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900">
+    <div className="min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white/80 transition-colors">
+      <MetaTags
+        title="Draw It - My Drawings"
+        description="View and manage your drawings. Create new collaborative drawings and share your creativity with others."
+        type="website"
+      />
       {/* Header */}
-      <header className="border-b border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm">
+      <header className="border-b  bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm border-gray-300 dark:border-gray-600">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold gradient-brand bg-clip-text text-transparent">
-                Draw It
-              </h1>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 justify-center items-center">
+                <Pencil
+                  height={40}
+                  width={40}
+                  className="bg-brand rounded-lg p-2 text-white"
+                />
+                <h1 className="text-2xl font-bold text-brand dark:text-white px-1.5 py-0.5 rounded-lg">
+                  Draw It
+                </h1>
+              </div>
               <Badge
                 variant="secondary"
                 className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
@@ -249,15 +389,7 @@ export default function Home() {
                 <Plus className="w-4 h-4 mr-2" />
                 {isCreatingDrawing ? "Creating..." : "New Drawing"}
               </Button>
-              <SignOutButton>
-                <Button
-                  variant="outline"
-                  className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:border-red-700"
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Logout
-                </Button>
-              </SignOutButton>
+              <UserAvatar size="sm" />
             </div>
           </div>
         </div>
@@ -304,18 +436,44 @@ export default function Home() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 text-black dark:text-white/80">
             {filteredDrawings.map((drawing) => (
               <Card
                 key={drawing.id}
-                className="group hover:shadow-lg transition-all duration-200 hover:-translate-y-1"
+                className="group hover:shadow-lg transition-all duration-200 hover:-translate-y-1 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <CardTitle className="text-lg font-semibold truncate">
-                        {drawing.name}
-                      </CardTitle>
+                      {editingDrawingId === drawing.id ? (
+                        <Input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onBlur={() => saveDrawingName(drawing.id)}
+                          onKeyDown={(e) => handleKeyPress(e, drawing.id)}
+                          className="text-lg font-semibold h-8 p-2 bg-transparent border-2 border-blue-500 focus:border-blue-600"
+                          autoFocus
+                        />
+                      ) : (
+                        <Link
+                          to={`/drawing/${drawing.id}`}
+                          className="w-full flex gap-2  items-center"
+                        >
+                          <CardTitle className="text-lg font-semibold truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                            {drawing.name}
+                          </CardTitle>
+                          <Pencil
+                            className=" hover:visible text-gray-500 dark:text-gray-300 dark:hover:text-white hover:text-black opacity-0 group-hover:opacity-100 transition-opacity"
+                            height={15}
+                            width={15}
+                            onClick={(e) => {
+                              startEditingName(drawing.id, drawing.name);
+                              e.stopPropagation();
+                              e.preventDefault();
+                            }}
+                          />
+                        </Link>
+                      )}
                       <CardDescription className="flex items-center gap-2 mt-1">
                         <Calendar className="w-3 h-3" />
                         {formatDate(drawing.updatedAt ?? drawing.createdAt)}
@@ -331,7 +489,10 @@ export default function Home() {
                           <MoreVertical className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent
+                        align="end"
+                        className=" dark:text-white border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-black dark:text-white/80 "
+                      >
                         <DropdownMenuItem asChild>
                           <Link
                             to={`/drawing/${drawing.id}`}
@@ -368,13 +529,13 @@ export default function Home() {
                 </CardHeader>
 
                 <CardContent className="pb-3">
-                  <div className="aspect-video bg-muted rounded-lg overflow-hidden mb-3 flex items-center justify-center">
+                  <div className="aspect-video bg-muted rounded-lg overflow-hidden mb-3 flex items-center justify-center relative group/cover">
                     {drawing.coverImage !== undefined &&
                     coverImages[drawing.coverImage] ? (
                       <div className="w-full h-full p-4 flex items-center justify-center">
                         {React.cloneElement(coverImages[drawing.coverImage], {
                           className:
-                            "w-full h-full max-w-16 max-h-16 object-contain",
+                            "w-full h-full max-w-24 max-h-24 object-contain",
                         })}
                       </div>
                     ) : (
@@ -382,21 +543,38 @@ export default function Home() {
                         <FileText className="w-8 h-8 text-muted-foreground" />
                       </div>
                     )}
+
+                    {/* Edit icon overlay */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/cover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="bg-white/90 hover:bg-white text-gray-900 shadow-lg"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleChangeCoverImage(drawing.id);
+                        }}
+                      >
+                        <Edit3 className="w-4 h-4 mr-1" />
+                        Edit Cover
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{drawing?.elements?.length ?? 0} elements</span>
-                    <Badge variant="outline" className="text-xs">
+                    {/* <Badge variant="outline" className="text-xs">
                       {drawing.backgroundType}
-                    </Badge>
+                    </Badge> */}
                   </div>
                 </CardContent>
 
                 <CardFooter className="pt-0">
                   <Link to={`/drawing/${drawing.id}`} className="w-full">
                     <Button
-                      variant="outline"
-                      className="w-full group-hover:bg-primary/10 group-hover:border-primary/20 transition-colors"
+                      // variant="outline"
+                      className="w-full group-hover:bg-primary/10  transition-colors border border-gray-300 dark:border-gray-600"
                     >
                       Open Drawing
                     </Button>

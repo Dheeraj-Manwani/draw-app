@@ -4,6 +4,10 @@ import {
   type BackgroundType,
 } from "@/types/canvas";
 import { drawElement } from "./canvas-utils";
+import {
+  getThemeAwareStrokeColor,
+  getThemeAwareFillColor,
+} from "@/utils/themeUtils";
 
 function drawBackgroundPattern(
   ctx: CanvasRenderingContext2D,
@@ -132,10 +136,6 @@ export function exportToPNG(
   elements.forEach((element) => {
     if (theme === "dark") {
       // Apply color inversion for dark mode
-      const {
-        getThemeAwareStrokeColor,
-        getThemeAwareFillColor,
-      } = require("@/utils/themeUtils");
       const themeAwareElement = {
         ...element,
         strokeColor: getThemeAwareStrokeColor(element.strokeColor, theme),
@@ -230,11 +230,34 @@ function getElementsBounds(elements: CanvasElement[]) {
   let maxY = -Infinity;
 
   elements.forEach((element) => {
-    minX = Math.min(minX, element.x);
-    minY = Math.min(minY, element.y);
-    maxX = Math.max(maxX, element.x + element.width);
-    maxY = Math.max(maxY, element.y + element.height);
+    if (
+      element.type === "freehand" ||
+      element.type === "eraser" ||
+      element.type === "laser"
+    ) {
+      // For freehand, eraser, and laser elements, calculate bounds from points
+      const points = element.data?.points || [];
+      if (points.length === 0) return;
+
+      points.forEach((point: any) => {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      });
+    } else {
+      // For other elements, use element bounds
+      minX = Math.min(minX, element.x);
+      minY = Math.min(minY, element.y);
+      maxX = Math.max(maxX, element.x + element.width);
+      maxY = Math.max(maxY, element.y + element.height);
+    }
   });
+
+  // Ensure we have valid bounds
+  if (minX === Infinity) {
+    return { x: 0, y: 0, width: 100, height: 100 };
+  }
 
   return {
     x: minX,

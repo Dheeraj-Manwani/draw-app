@@ -15,7 +15,8 @@ export interface CanvasElement {
     | "diamond"
     | "eraser"
     | "image"
-    | "embed";
+    | "embed"
+    | "laser";
   x: number;
   y: number;
   width: number;
@@ -36,6 +37,9 @@ export interface CanvasElement {
   // Image-specific properties
   imageUrl?: string;
   imageData?: string; // Base64 data
+  cachedImage?: HTMLImageElement; // Cached image to prevent flickering
+  imageLoaded?: boolean; // Flag to prevent infinite redraw loops
+  onImageLoad?: () => void; // Callback when image loads
   // Embed-specific properties
   embedUrl?: string;
   embedType?: string;
@@ -59,6 +63,7 @@ export interface CanvasState {
   gridVisible: boolean;
   backgroundType: BackgroundType;
   backgroundColor: string;
+  toolLocked: boolean;
 }
 
 export interface DrawingAction {

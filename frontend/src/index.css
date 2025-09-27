@@ -227,3 +227,15 @@
     color: hsl(var(--accent-foreground));
   }
 }
+
+/* Custom Laser Cursor - Red Dot */
+.cursor-laser {
+  cursor: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjYiIGZpbGw9IiNmZjAwMDAiLz4KPC9zdmc+Cg==")
+      8 8,
+    auto;
+}
+
+.custom_class > svg {
+  height: 50px !important;
+  width: 50px !important;
+}
