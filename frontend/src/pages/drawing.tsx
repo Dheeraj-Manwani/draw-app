@@ -15,6 +15,8 @@ import MetaTags from "@/components/MetaTags";
 import LoginModal from "@/components/LoginModal";
 import { geminiService } from "@/lib/geminiService";
 import { type CanvasElement } from "@/types/canvas";
+import { useTheme } from "@/contexts/ThemeContext";
+import { getInitialStrokeColor } from "@/utils/themeUtils";
 
 // Define CollaborativeUser type locally since @shared/schema is not available
 // interface CollaborativeUser {
@@ -39,6 +41,7 @@ const ROOM_ID = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 export default function Drawing() {
   const { toast } = useToast();
+  const { theme } = useTheme();
   const queryClient = useQueryClient();
   const { isSignedIn, isLoaded } = useUser();
   const [match, params] = useRoute("/drawing/:id");
@@ -52,6 +55,25 @@ export default function Drawing() {
   const [isAIDiagramModalOpen, setIsAIDiagramModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [textInput, setTextInput] = useState<{
+    element: CanvasElement;
+    position: { x: number; y: number };
+    isEditing?: boolean;
+  } | null>(null);
+
+  // Handle text input changes from Canvas
+  const handleTextInputChange = useCallback(
+    (
+      newTextInput: {
+        element: CanvasElement;
+        position: { x: number; y: number };
+        isEditing?: boolean;
+      } | null
+    ) => {
+      setTextInput(newTextInput);
+    },
+    []
+  );
 
   // Determine if we're on the "/" route (no params) or "/drawing/:id" route
   const isDefaultRoute = !match; // No match means we're on "/"
@@ -62,6 +84,7 @@ export default function Drawing() {
     addElement,
     updateElement,
     deleteElement,
+    deleteMultiElements,
     selectElement,
     selectMultipleElements,
     clearSelection,
@@ -429,12 +452,8 @@ export default function Drawing() {
     const viewportWidth = 800;
     const viewportHeight = 600;
 
-    // Calculate zoom to fit content in viewport
-    const scaleX = viewportWidth / contentWidth;
-    const scaleY = viewportHeight / contentHeight;
-    const newZoom = Math.min(scaleX, scaleY, 3); // Cap zoom at 3x
-
-    // Center the content in the viewport
+    // Set zoom to 100% (1.0) and center the content
+    const newZoom = 1.0;
     const newPanX = viewportWidth / 2 - contentCenterX * newZoom;
     const newPanY = viewportHeight / 2 - contentCenterY * newZoom;
 
@@ -576,9 +595,8 @@ export default function Drawing() {
     if (state.elements.length > 0) {
       // Create a copy of elements to avoid mutation during iteration
       const elementsToDelete = [...state.elements];
-      elementsToDelete.forEach((element) => {
-        deleteElement(element.id);
-      });
+      const elementIds = elementsToDelete.map((element) => element.id);
+      deleteMultiElements(elementIds);
     }
 
     // Clear selection and reset view
@@ -675,7 +693,7 @@ export default function Drawing() {
         width: 400,
         height: 300,
         angle: 0,
-        strokeColor: "#000000",
+        strokeColor: getInitialStrokeColor(theme),
         fillColor: "transparent",
         strokeWidth: 1,
         strokeStyle: "solid",
@@ -699,6 +717,7 @@ export default function Drawing() {
       state.elements.length,
       handleElementCreate,
       toast,
+      theme,
     ]
   );
 
@@ -996,6 +1015,7 @@ export default function Drawing() {
             toast("Drawing exported successfully!");
           }
         }}
+        textInput={textInput}
       />
 
       <div className="flex-1 overflow-hidden relative">
@@ -1022,6 +1042,7 @@ export default function Drawing() {
           onCursorMove={handleCursorMove}
           onToolChange={setTool}
           onScrollToContent={scrollToContent}
+          onTextInputChange={handleTextInputChange}
         />
 
         {/* Properties Panel - Absolutely positioned */}

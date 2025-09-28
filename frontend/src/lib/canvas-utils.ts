@@ -154,16 +154,26 @@ function drawText(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   ctx.textBaseline = "top";
 
   const text = element.data?.text || "";
+  const lines = text.split("\n");
+  const lineHeight = fontSize * 1.2; // Add some line spacing
 
-  // Calculate text width for auto-expanding
-  const textWidth = ctx.measureText(text).width;
+  // Calculate the maximum width and total height
+  let maxWidth = 0;
+  lines.forEach((line: string) => {
+    const lineWidth = ctx.measureText(line).width;
+    maxWidth = Math.max(maxWidth, lineWidth);
+  });
 
-  // Update element width if text is wider
-  if (textWidth > element.width) {
-    element.width = textWidth + 10; // Add some padding
-  }
+  // Always update element dimensions to match the actual text content
+  const padding = 10;
+  element.width = Math.max(maxWidth, 0); // Minimum width of 200
+  element.height = Math.max(lines.length * lineHeight + padding, 50); // Minimum height of 50
 
-  ctx.fillText(text, element.x, element.y);
+  // Draw each line
+  lines.forEach((line: string, index: number) => {
+    const y = element.y + index * lineHeight;
+    ctx.fillText(line, element.x, y);
+  });
 }
 
 function drawDiamond(ctx: CanvasRenderingContext2D, element: CanvasElement) {

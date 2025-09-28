@@ -294,11 +294,16 @@ function elementToSVG(element: CanvasElement): string {
 
     case "text":
       const fontSize = element.data?.fontSize || 16;
-      return `<text x="${element.x}" y="${
-        element.y + fontSize
-      }" font-size="${fontSize}" fill="${element.strokeColor}">${
-        element.data?.text || ""
-      }</text>`;
+      const text = element.data?.text || "";
+      const lines = text.split("\n");
+      const lineHeight = fontSize * 1.2;
+
+      return lines
+        .map((line: string, index: number) => {
+          const y = element.y + fontSize + index * lineHeight;
+          return `<text x="${element.x}" y="${y}" font-size="${fontSize}" fill="${element.strokeColor}">${line}</text>`;
+        })
+        .join("\n");
 
     case "image":
       if (element.imageData) {

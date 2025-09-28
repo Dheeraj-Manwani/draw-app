@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import {
   type CanvasElement,
   type CanvasState,
@@ -27,25 +27,40 @@ export function useCanvas() {
   const [history, setHistory] = useState<UndoableState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const undoRedoInProgress = useRef(false);
+  const historyIndexRef = useRef(-1);
 
-  const pushToHistory = useCallback(
-    (newState: CanvasState) => {
-      if (undoRedoInProgress.current) return;
-
-      const undoableState: UndoableState = {
-        elements: newState.elements,
-        selectedElementIds: newState.selectedElementIds,
+  // Initialize history with initial state
+  useEffect(() => {
+    if (history.length === 0) {
+      const initialUndoableState: UndoableState = {
+        elements: INITIAL_STATE.elements,
+        selectedElementIds: INITIAL_STATE.selectedElementIds,
       };
+      setHistory([initialUndoableState]);
+      setHistoryIndex(0);
+      historyIndexRef.current = 0;
+    }
+  }, [history.length]);
 
-      setHistory((prev) => {
-        const newHistory = prev.slice(0, historyIndex + 1);
-        newHistory.push(undoableState);
-        return newHistory.slice(-50); // Keep last 50 states
-      });
-      setHistoryIndex((prev) => Math.min(prev + 1, 49));
-    },
-    [historyIndex]
-  );
+  const pushToHistory = useCallback((newState: CanvasState) => {
+    if (undoRedoInProgress.current) return;
+
+    const undoableState: UndoableState = {
+      elements: newState.elements,
+      selectedElementIds: newState.selectedElementIds,
+    };
+
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndexRef.current + 1);
+      newHistory.push(undoableState);
+      return newHistory.slice(-50); // Keep last 50 states
+    });
+    setHistoryIndex((prev) => {
+      const newIndex = Math.min(prev + 1, 49);
+      historyIndexRef.current = newIndex;
+      return newIndex;
+    });
+  }, []);
 
   const updateState = useCallback(
     (updates: Partial<CanvasState>) => {
@@ -92,6 +107,18 @@ export function useCanvas() {
         elements: state.elements.filter((el) => el.id !== id),
         selectedElementIds: state.selectedElementIds.filter(
           (selectedId) => selectedId !== id
+        ),
+      });
+    },
+    [state.elements, state.selectedElementIds, updateState]
+  );
+
+  const deleteMultiElements = useCallback(
+    (elementIds: string[]) => {
+      updateState({
+        elements: state.elements.filter((el) => !elementIds.includes(el.id)),
+        selectedElementIds: state.selectedElementIds.filter(
+          (selectedId) => !elementIds.includes(selectedId)
         ),
       });
     },
@@ -178,17 +205,15 @@ export function useCanvas() {
   }, [state.toolLocked, updateStateNoHistory]);
 
   const undo = useCallback(() => {
-    if (historyIndex >= 0) {
+    if (historyIndex > 0) {
       undoRedoInProgress.current = true;
-      const prevUndoableState =
-        historyIndex === 0
-          ? {
-              elements: INITIAL_STATE.elements,
-              selectedElementIds: INITIAL_STATE.selectedElementIds,
-            }
-          : history[historyIndex - 1];
+      const prevUndoableState = history[historyIndex - 1];
       setState((prev) => ({ ...prev, ...prevUndoableState }));
-      setHistoryIndex((prev) => prev - 1);
+      setHistoryIndex((prev) => {
+        const newIndex = prev - 1;
+        historyIndexRef.current = newIndex;
+        return newIndex;
+      });
       setTimeout(() => {
         undoRedoInProgress.current = false;
       }, 0);
@@ -200,14 +225,18 @@ export function useCanvas() {
       undoRedoInProgress.current = true;
       const nextUndoableState = history[historyIndex + 1];
       setState((prev) => ({ ...prev, ...nextUndoableState }));
-      setHistoryIndex((prev) => prev + 1);
+      setHistoryIndex((prev) => {
+        const newIndex = prev + 1;
+        historyIndexRef.current = newIndex;
+        return newIndex;
+      });
       setTimeout(() => {
         undoRedoInProgress.current = false;
       }, 0);
     }
   }, [history, historyIndex]);
 
-  const canUndo = historyIndex >= 0;
+  const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
   const getElementAtPoint = useCallback(
@@ -296,6 +325,7 @@ export function useCanvas() {
     addElement,
     updateElement,
     deleteElement,
+    deleteMultiElements,
     selectElement,
     selectMultipleElements,
     clearSelection,

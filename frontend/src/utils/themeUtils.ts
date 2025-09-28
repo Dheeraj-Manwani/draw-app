@@ -173,17 +173,21 @@ export const getThemeAwareStrokeColor = (
   color: string,
   theme: Theme
 ): string => {
-  if (theme === "light") return color;
+  // if (theme === "light") return color;
 
   // For dark mode, ensure good contrast against black background
-  if (color === "#000000" || color === "black") {
+  if (theme === "dark" && (color === "#000000" || color === "black")) {
     return "#ffffff";
   }
 
-  // For very dark colors, make them lighter
-  if (isDarkColor(color)) {
-    return invertColorForTheme(color, theme);
+  if (theme === "light" && (color === "#ffffff" || color === "white")) {
+    return "#000000";
   }
+
+  // For very dark colors, make them lighter
+  // if (isDarkColor(color)) {
+  //   return invertColorForTheme(color, theme);
+  // }
 
   return color;
 };
@@ -206,5 +210,12 @@ export const getThemeAwareFillColor = (color: string, theme: Theme): string => {
   }
 
   // For other colors, apply smart inversion
-  return invertColorForTheme(color, theme);
+  // return invertColorForTheme(color, theme);
+
+  return color;
+};
+
+// Get theme-aware initial stroke color for new elements
+export const getInitialStrokeColor = (theme: Theme): string => {
+  return theme === "dark" ? "#ffffff" : "#000000";
 };

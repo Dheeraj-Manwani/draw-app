@@ -6,6 +6,7 @@ import {
   getThemeBackgroundColor,
   getThemeAwareStrokeColor,
   getThemeAwareFillColor,
+  getInitialStrokeColor,
 } from "@/utils/themeUtils";
 import ScrollToContentButton from "./ScrollToContentButton";
 import ImageUploadModal from "./ImageUploadModal";
@@ -45,6 +46,13 @@ interface CanvasProps {
   onCursorMove: (x: number, y: number) => void;
   onToolChange: (tool: string) => void;
   onScrollToContent?: () => void;
+  onTextInputChange?: (
+    textInput: {
+      element: CanvasElement;
+      position: Point;
+      isEditing?: boolean;
+    } | null
+  ) => void;
 }
 
 export default function Canvas({
@@ -70,9 +78,11 @@ export default function Canvas({
   onCursorMove,
   onToolChange,
   onScrollToContent,
+  onTextInputChange,
 }: CanvasProps) {
   const { theme } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
@@ -84,6 +94,23 @@ export default function Canvas({
     position: Point;
     isEditing?: boolean;
   } | null>(null);
+
+  // Notify parent when textInput changes
+  useEffect(() => {
+    if (onTextInputChange) {
+      onTextInputChange(textInput);
+    }
+  }, [textInput, onTextInputChange]);
+
+  // Auto-resize textarea when textInput changes
+  useEffect(() => {
+    if (textInput && textareaRef.current) {
+      const textarea = textareaRef.current;
+      // Set initial height based on content
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [textInput]);
   const [isImageUploadOpen, setIsImageUploadOpen] = useState(false);
   const [isEmbedModalOpen, setIsEmbedModalOpen] = useState(false);
   const [hoveredElement, setHoveredElement] = useState<CanvasElement | null>(
@@ -1014,6 +1041,13 @@ export default function Canvas({
       const mousePos = getMousePos(e);
       const canvasPos = screenToCanvas(mousePos, zoom, panX, panY);
 
+      // If we're editing text and click elsewhere, finalize the text
+      if (textInput) {
+        const currentText = textareaRef.current?.value || "";
+        handleTextSubmit(currentText);
+        return;
+      }
+
       if (tool === "select") {
         // Check if clicking on a resize handle first
         const handle = getResizeHandleAtPoint(mousePos);
@@ -1092,9 +1126,9 @@ export default function Canvas({
           x: canvasPos.x,
           y: canvasPos.y,
           width: 200,
-          height: 30,
+          height: 50, // Increased height to better accommodate multi-line text
           angle: 0,
-          strokeColor: "#1e293b",
+          strokeColor: getInitialStrokeColor(theme),
           fillColor: "transparent",
           strokeWidth: 2,
           strokeStyle: "solid",
@@ -1107,7 +1141,7 @@ export default function Canvas({
         setTextInput({
           element: newElement,
           position: canvasPos,
-          isEditing: true,
+          isEditing: false,
         });
       } else if (tool === "image") {
         // Handle image tool - open upload modal
@@ -1132,7 +1166,7 @@ export default function Canvas({
           width: 0,
           height: 0,
           angle: 0,
-          strokeColor: "#1e293b",
+          strokeColor: getInitialStrokeColor(theme),
           fillColor: "transparent",
           strokeWidth: tool === "eraser" ? 20 : 2,
           strokeStyle: "solid",
@@ -1157,6 +1191,8 @@ export default function Canvas({
       elements.length,
       onElementSelect,
       onClearSelection,
+      theme,
+      textInput,
     ]
   );
 
@@ -1746,12 +1782,19 @@ export default function Canvas({
           if (distance <= threshold) {
             return element;
           }
-        } else if (
-          element.type === "text" ||
-          element.type === "image" ||
-          element.type === "embed"
-        ) {
-          // For text, image, and embed elements, check if point is within the element bounds
+        } else if (element.type === "text") {
+          // For text elements, use the stored element dimensions
+          // The dimensions should be properly maintained by the drawText function
+          if (
+            point.x >= element.x &&
+            point.x <= element.x + element.width &&
+            point.y >= element.y &&
+            point.y <= element.y + element.height
+          ) {
+            return element;
+          }
+        } else if (element.type === "image" || element.type === "embed") {
+          // For image and embed elements, check if point is within the element bounds
           if (
             point.x >= element.x &&
             point.x <= element.x + element.width &&
@@ -1898,6 +1941,42 @@ export default function Canvas({
     [elements, selectedElementIds, zoom, panX, panY]
   );
 
+  // Calculate text element dimensions based on content
+  const calculateTextDimensions = useCallback(
+    (text: string, element: CanvasElement) => {
+      const fontSize = element.data?.fontSize || 16;
+      const fontFamily = element.data?.fontFamily || "Inter, sans-serif";
+      const lines = text.split("\n");
+      const lineHeight = fontSize * 1.2;
+
+      // Create a temporary canvas context to measure text
+      const tempCanvas = document.createElement("canvas");
+      const tempCtx = tempCanvas.getContext("2d");
+
+      let maxWidth = 0;
+      if (tempCtx) {
+        tempCtx.font = `${fontSize}px ${fontFamily}`;
+        lines.forEach((line: string) => {
+          const lineWidth = tempCtx.measureText(line).width;
+          maxWidth = Math.max(maxWidth, lineWidth);
+        });
+      }
+
+      const padding = 10;
+      const calculatedWidth = Math.max(maxWidth + padding, 200); // Minimum width of 200
+      const calculatedHeight = Math.max(
+        lines.length * lineHeight + padding,
+        50
+      ); // Minimum height of 50
+
+      return {
+        width: calculatedWidth,
+        height: calculatedHeight,
+      };
+    },
+    []
+  );
+
   const handleTextSubmit = useCallback(
     (text: string) => {
       if (textInput && text.trim()) {
@@ -1905,15 +1984,41 @@ export default function Canvas({
           ...textInput.element,
           data: { ...textInput.element.data, text: text.trim() },
         };
-        onElementCreate(elementWithText, () => {
-          // Auto-select the created text element and switch to select tool
-          onElementSelect(elementWithText.id);
-          onToolChange("select");
-        });
+
+        // Calculate proper dimensions for the text
+        const dimensions = calculateTextDimensions(
+          text.trim(),
+          elementWithText
+        );
+        elementWithText.width = dimensions.width;
+        elementWithText.height = dimensions.height;
+
+        if (textInput.isEditing) {
+          // Update existing element
+          onElementUpdate(textInput.element.id, {
+            data: elementWithText.data,
+            width: elementWithText.width,
+            height: elementWithText.height,
+          });
+        } else {
+          // Create new element
+          onElementCreate(elementWithText, () => {
+            // Auto-select the created text element and switch to select tool
+            onElementSelect(elementWithText.id);
+            onToolChange("select");
+          });
+        }
       }
       setTextInput(null);
     },
-    [textInput, onElementCreate, onElementSelect, onToolChange]
+    [
+      textInput,
+      onElementCreate,
+      onElementUpdate,
+      onElementSelect,
+      onToolChange,
+      calculateTextDimensions,
+    ]
   );
 
   const handleTextCancel = useCallback(() => {
@@ -2157,10 +2262,10 @@ export default function Canvas({
             top: textInput.position.y * zoom + panY,
           }}
         >
-          <input
-            type="text"
+          <textarea
+            ref={textareaRef}
             autoFocus
-            className="px-2 py-1 text-sm bg-transparent text-black dark:text-white focus:outline-none transition-all duration-200 resize-none"
+            className="px-2 py-1 text-sm bg-transparent text-black dark:text-white focus:outline-none transition-all duration-200 resize-none overflow-hidden"
             style={{
               fontSize: `${(textInput.element.data?.fontSize || 16) * zoom}px`,
               fontFamily:
@@ -2176,21 +2281,27 @@ export default function Canvas({
               border: "none",
               outline: "none",
               boxShadow: "none",
+              overflow: "hidden",
+              resize: "none",
             }}
             placeholder={textInput.isEditing ? "Edit text..." : "Enter text..."}
             defaultValue={textInput.element.data?.text || ""}
+            onInput={(e) => {
+              // Auto-resize textarea based on content
+              const target = e.target as HTMLTextAreaElement;
+              target.style.height = "auto";
+              target.style.height = `${target.scrollHeight}px`;
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleTextSubmit(e.currentTarget.value);
-              } else if (e.key === "Escape") {
+              if (e.key === "Escape") {
                 e.preventDefault();
                 handleTextCancel();
               }
             }}
             onBlur={(e) => {
-              if (e.currentTarget.value.trim()) {
-                handleTextSubmit(e.currentTarget.value);
+              const currentText = e.currentTarget.value;
+              if (currentText.trim()) {
+                handleTextSubmit(currentText);
               } else {
                 handleTextCancel();
               }
