@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import ExportModal from "./ExportModal";
 import { Link } from "wouter";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 interface HamburgerMenuProps {
   onNew: () => void;
@@ -41,6 +43,7 @@ export default function HamburgerMenu({
 }: HamburgerMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const backgroundTypes = [
     { value: "none", label: "None" },
@@ -55,7 +58,10 @@ export default function HamburgerMenu({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className={cn(
+              "h-8 w-8 p-0 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700",
+              isMobile && "h-6 w-6"
+            )}
             aria-label="Open menu"
           >
             <Menu className="h-4 w-4" />

@@ -14,9 +14,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Drawing} />
-      <Route path="/home" component={Home} />
+      <Route path="/home" component={Drawing} />
       <Route path="/drawing/:id" component={Drawing} />
-      <Route component={NotFound} />
+      <Route component={Drawing} />
     </Switch>
   );
 }

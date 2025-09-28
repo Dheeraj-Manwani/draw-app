@@ -1055,6 +1055,7 @@ export default function Drawing() {
               onElementDuplicate={handleElementDuplicate}
               onBringToFront={handleBringToFront}
               onSendToBack={handleSendToBack}
+              onClearSelection={clearSelection}
             />
           </div>
         )}

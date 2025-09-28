@@ -1,10 +1,20 @@
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { ArrowUp, ArrowDown, Copy, Trash2, MoreHorizontal } from "lucide-react";
+import {
+  ArrowUp,
+  ArrowDown,
+  Copy,
+  Trash2,
+  MoreHorizontal,
+  Settings,
+  X,
+} from "lucide-react";
 import { type CanvasElement } from "@/types/canvas";
 import ColorPickerModal from "./ColorPickerModal";
 import { useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 interface PropertiesPanelProps {
   selectedElements: CanvasElement[];
@@ -13,6 +23,7 @@ interface PropertiesPanelProps {
   onElementDuplicate: (element: CanvasElement) => void;
   onBringToFront: (id: string) => void;
   onSendToBack: (id: string) => void;
+  onClearSelection: () => void;
 }
 
 // Main colors shown in the properties panel
@@ -26,10 +37,11 @@ const mainStrokeColors = [
 
 const mainFillColors = [
   { color: "transparent", label: "Transparent" },
-  { color: "#ffffff", label: "White" },
-  { color: "#f8fafc", label: "Light Gray" },
-  { color: "#e2e8f0", label: "Gray" },
-  { color: "#cbd5e1", label: "Medium Gray" },
+  { color: "#1e293b", label: "Black" },
+  { color: "#dc2626", label: "Red" },
+  { color: "#16a34a", label: "Green" },
+  { color: "#2563eb", label: "Blue" },
+  { color: "#9333ea", label: "Purple" },
 ];
 
 // All colors for the modal
@@ -275,11 +287,14 @@ export default function PropertiesPanel({
   onElementDuplicate,
   onBringToFront,
   onSendToBack,
+  onClearSelection,
 }: PropertiesPanelProps) {
   const hasSelection = selectedElements.length > 0;
   const selectedElement = selectedElements[0];
   const [isStrokeColorModalOpen, setIsStrokeColorModalOpen] = useState(false);
   const [isFillColorModalOpen, setIsFillColorModalOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const [isPropertiesPanelOpen, setIsPropertiesPanelOpen] = useState(false);
 
   const updateSelectedElements = (updates: Partial<CanvasElement>) => {
     selectedElements.forEach((element) => {
@@ -298,294 +313,359 @@ export default function PropertiesPanel({
   }
 
   return (
-    <aside className="w-80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-l border-gray-200 dark:border-gray-700 shadow-lg p-6 overflow-y-auto h-full">
-      <div className="space-y-4">
-        {/* Element Info */}
-        <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-          <h3 className="text-sm font-semibold mb-2 text-black dark:text-white">
-            Selection
-          </h3>
-          <div
-            className="text-sm text-gray-600 dark:text-gray-400"
-            data-testid="text-selection-info"
-          >
-            {selectedElements.length === 1
-              ? `${
-                  selectedElement.type.charAt(0).toUpperCase() +
-                  selectedElement.type.slice(1)
-                } selected`
-              : `${selectedElements.length} elements selected`}
-          </div>
-        </div>
-
-        {/* Stroke Properties */}
-        <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-          <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-            <div className="w-2 h-2 bg-primary rounded-full mr-2"></div>
-            Stroke
-          </h3>
-
-          {/* Stroke Color */}
-          <div className="mb-3">
-            <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-              Color
-            </Label>
-            <div className="flex items-center gap-2">
-              {mainStrokeColors.map(({ color, label }) => (
-                <button
-                  key={color}
-                  className={`w-7 h-7 rounded-md border-2 transition-all duration-200 hover:scale-110 ${
-                    selectedElement.strokeColor === color
-                      ? "border-black dark:border-white shadow-md ring-2 ring-primary/20"
-                      : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
-                  }`}
-                  style={{ backgroundColor: color }}
-                  onClick={() => updateSelectedElements({ strokeColor: color })}
-                  title={label}
-                  data-testid={`stroke-color-${color}`}
-                />
-              ))}
+    <>
+      {(isMobile && isPropertiesPanelOpen) || !isMobile ? (
+        <aside
+          className={cn(
+            "w-80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-l border-gray-200 dark:border-gray-700 shadow-lg p-6 overflow-y-auto h-full",
+            isMobile && "pb-24"
+          )}
+        >
+          <div className="space-y-4">
+            {/* Header with Close Button */}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-black dark:text-white">
+                Properties
+              </h2>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setIsStrokeColorModalOpen(true)}
-                className="w-7 h-7 p-0 flex items-center justify-center border-gray-300 dark:border-gray-600 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
-                title="More colors"
+                onClick={() => {
+                  onClearSelection();
+                  if (isMobile) {
+                    setIsPropertiesPanelOpen(false);
+                  }
+                }}
+                className="h-8 w-8 p-0 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors duration-200"
+                title="Close properties panel"
               >
-                <MoreHorizontal className="h-3 w-3" />
+                <X className="h-4 w-4 text-gray-600 dark:text-gray-400" />
               </Button>
             </div>
-          </div>
 
-          {/* Stroke Width */}
-          <div className="mb-3">
-            <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-              Width: {selectedElement.strokeWidth}px
-            </Label>
-            <Slider
-              value={[selectedElement.strokeWidth]}
-              onValueChange={([value]) =>
-                updateSelectedElements({ strokeWidth: value })
-              }
-              min={1}
-              max={20}
-              step={1}
-              className="w-full"
-              data-testid="slider-stroke-width"
-            />
-          </div>
+            {/* Element Info */}
+            <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+              <h3 className="text-sm font-semibold text-black dark:text-white">
+                {/* Selection */}
+                {selectedElements.length === 1 &&
+                  `${
+                    selectedElement.type.charAt(0).toUpperCase() +
+                    selectedElement.type.slice(1)
+                  }`}
+              </h3>
+              {/* <div
+                className="text-sm text-gray-600 dark:text-gray-400"
+                data-testid="text-selection-info"
+              >
+                {selectedElements.length === 1
+                  ? `${
+                      selectedElement.type.charAt(0).toUpperCase() +
+                      selectedElement.type.slice(1)
+                    } selected`
+                  : `${selectedElements.length} elements selected`}
+              </div> */}
+            </div>
 
-          {/* Stroke Style */}
-          <div className="mb-3">
-            <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-              Style
-            </Label>
-            <div className="flex gap-2">
-              {["solid", "dashed", "dotted"].map((style) => (
+            {/* Stroke Properties - Only show for elements that have strokes */}
+            {!["eraser", "laser"].includes(selectedElement.type) && (
+              <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+                <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
+                  <div className="w-2 h-2 bg-primary rounded-full mr-2"></div>
+                  Stroke
+                </h3>
+
+                {/* Stroke Color */}
+                <div className="mb-3">
+                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
+                    Color
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    {mainStrokeColors.map(({ color, label }) => (
+                      <button
+                        key={color}
+                        className={`w-7 h-7 rounded-md border-2 transition-all duration-200 hover:scale-110 ${
+                          selectedElement.strokeColor === color
+                            ? "border-black dark:border-white shadow-md ring-2 ring-primary/20"
+                            : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
+                        }`}
+                        style={{ backgroundColor: color }}
+                        onClick={() =>
+                          updateSelectedElements({ strokeColor: color })
+                        }
+                        title={label}
+                        data-testid={`stroke-color-${color}`}
+                      />
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsStrokeColorModalOpen(true)}
+                      className="w-7 h-7 p-0 flex items-center justify-center border-gray-300 dark:border-gray-600 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
+                      title="More colors"
+                    >
+                      <MoreHorizontal className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Stroke Width */}
+                <div className="mb-3">
+                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
+                    Width: {selectedElement.strokeWidth}px
+                  </Label>
+                  <Slider
+                    value={[selectedElement.strokeWidth]}
+                    onValueChange={([value]) =>
+                      updateSelectedElements({ strokeWidth: value })
+                    }
+                    min={1}
+                    max={20}
+                    step={1}
+                    className="w-full"
+                    data-testid="slider-stroke-width"
+                  />
+                </div>
+
+                {/* Stroke Style */}
+                <div className="mb-3">
+                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
+                    Style
+                  </Label>
+                  <div className="flex gap-2">
+                    {["solid", "dashed", "dotted"].map((style) => (
+                      <Button
+                        key={style}
+                        variant={
+                          selectedElement.strokeStyle === style
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          updateSelectedElements({ strokeStyle: style as any })
+                        }
+                        className="text-xs capitalize text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                        data-testid={`stroke-style-${style}`}
+                      >
+                        {style}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Fill Properties - Only show for elements that can have fills */}
+            {!["freehand", "line", "arrow", "eraser", "laser"].includes(
+              selectedElement.type
+            ) && (
+              <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+                <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
+                  <div className="w-2 h-2 bg-accent rounded-full mr-2"></div>
+                  Fill
+                </h3>
+
+                {/* Fill Color */}
+                <div className="mb-3">
+                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
+                    Fill Color
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    {mainFillColors.map(({ color, label }) => (
+                      <button
+                        key={color}
+                        className={`w-7 h-7 rounded-md border-2 transition-all duration-200 hover:scale-110 ${
+                          selectedElement.fillColor === color
+                            ? "border-black dark:border-white shadow-md ring-2 ring-primary/20"
+                            : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
+                        } ${
+                          color === "transparent"
+                            ? "bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-600 dark:to-gray-500 relative"
+                            : ""
+                        }`}
+                        style={{
+                          backgroundColor:
+                            color === "transparent" ? undefined : color,
+                        }}
+                        onClick={() =>
+                          updateSelectedElements({ fillColor: color })
+                        }
+                        title={label}
+                        data-testid={`fill-color-${color}`}
+                      >
+                        {color === "transparent" && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-3 h-0.5 bg-gray-500 dark:bg-gray-400 rotate-45"></div>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsFillColorModalOpen(true)}
+                      className="w-7 h-7 p-0 flex items-center justify-center border-gray-300 dark:border-gray-600 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
+                      title="More colors"
+                    >
+                      <MoreHorizontal className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Text Properties (for text elements) */}
+            {selectedElement.type === "text" && (
+              <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+                <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
+                  <div className="w-2 h-2 bg-secondary rounded-full mr-2"></div>
+                  Text
+                </h3>
+
+                {/* Font Size */}
+                <div className="mb-3">
+                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
+                    Size: {selectedElement.fontSize || 16}px
+                  </Label>
+                  <Slider
+                    value={[selectedElement.fontSize || 16]}
+                    onValueChange={([value]) =>
+                      updateSelectedElements({ fontSize: value })
+                    }
+                    min={8}
+                    max={72}
+                    step={1}
+                    className="w-full"
+                    data-testid="slider-font-size"
+                  />
+                </div>
+
+                {/* Font Weight */}
+                <div className="mb-3">
+                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
+                    Weight
+                  </Label>
+                  <div className="flex gap-2">
+                    {["normal", "bold"].map((weight) => (
+                      <Button
+                        key={weight}
+                        variant={
+                          selectedElement.fontWeight === weight
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          updateSelectedElements({ fontWeight: weight as any })
+                        }
+                        className="text-xs capitalize text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                        data-testid={`font-weight-${weight}`}
+                      >
+                        {weight}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className={cn("bg-gray-100 dark:bg-gray-700 rounded-lg p-3")}>
+              <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
+                <div className="w-2 h-2 bg-destructive rounded-full mr-2"></div>
+                Actions
+              </h3>
+
+              <div className="grid grid-cols-2 gap-2">
                 <Button
-                  key={style}
-                  variant={
-                    selectedElement.strokeStyle === style
-                      ? "default"
-                      : "outline"
-                  }
+                  variant="outline"
                   size="sm"
-                  onClick={() =>
-                    updateSelectedElements({ strokeStyle: style as any })
-                  }
-                  className="text-xs capitalize text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-                  data-testid={`stroke-style-${style}`}
+                  onClick={() => onElementDuplicate(selectedElement)}
+                  className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  data-testid="button-duplicate"
                 >
-                  {style}
+                  <Copy className="w-3 h-3 mr-1" />
+                  Duplicate
                 </Button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Fill Properties */}
-        <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-          <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-            <div className="w-2 h-2 bg-accent rounded-full mr-2"></div>
-            Fill
-          </h3>
-
-          {/* Fill Color */}
-          <div className="mb-3">
-            <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-              Fill Color
-            </Label>
-            <div className="flex items-center gap-2">
-              {mainFillColors.map(({ color, label }) => (
-                <button
-                  key={color}
-                  className={`w-7 h-7 rounded-md border-2 transition-all duration-200 hover:scale-110 ${
-                    selectedElement.fillColor === color
-                      ? "border-black dark:border-white shadow-md ring-2 ring-primary/20"
-                      : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
-                  } ${
-                    color === "transparent"
-                      ? "bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-600 dark:to-gray-500 relative"
-                      : ""
-                  }`}
-                  style={{
-                    backgroundColor:
-                      color === "transparent" ? undefined : color,
-                  }}
-                  onClick={() => updateSelectedElements({ fillColor: color })}
-                  title={label}
-                  data-testid={`fill-color-${color}`}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onElementDelete(selectedElement.id)}
+                  className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 border-red-300 dark:border-red-600"
+                  data-testid="button-delete"
                 >
-                  {color === "transparent" && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-3 h-0.5 bg-gray-500 dark:bg-gray-400 rotate-45"></div>
-                    </div>
-                  )}
-                </button>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsFillColorModalOpen(true)}
-                className="w-7 h-7 p-0 flex items-center justify-center border-gray-300 dark:border-gray-600 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
-                title="More colors"
-              >
-                <MoreHorizontal className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-        </div>
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  Delete
+                </Button>
+              </div>
 
-        {/* Text Properties (for text elements) */}
-        {selectedElement.type === "text" && (
-          <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-            <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-              <div className="w-2 h-2 bg-secondary rounded-full mr-2"></div>
-              Text
-            </h3>
-
-            {/* Font Size */}
-            <div className="mb-3">
-              <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                Size: {selectedElement.fontSize || 16}px
-              </Label>
-              <Slider
-                value={[selectedElement.fontSize || 16]}
-                onValueChange={([value]) =>
-                  updateSelectedElements({ fontSize: value })
-                }
-                min={8}
-                max={72}
-                step={1}
-                className="w-full"
-                data-testid="slider-font-size"
-              />
-            </div>
-
-            {/* Font Weight */}
-            <div className="mb-3">
-              <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                Weight
-              </Label>
-              <div className="flex gap-2">
-                {["normal", "bold"].map((weight) => (
-                  <Button
-                    key={weight}
-                    variant={
-                      selectedElement.fontWeight === weight
-                        ? "default"
-                        : "outline"
-                    }
-                    size="sm"
-                    onClick={() =>
-                      updateSelectedElements({ fontWeight: weight as any })
-                    }
-                    className="text-xs capitalize text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-                    data-testid={`font-weight-${weight}`}
-                  >
-                    {weight}
-                  </Button>
-                ))}
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onBringToFront(selectedElement.id)}
+                  className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  data-testid="button-bring-to-front"
+                >
+                  <ArrowUp className="w-3 h-3 mr-1" />
+                  To Front
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onSendToBack(selectedElement.id)}
+                  className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  data-testid="button-send-to-back"
+                >
+                  <ArrowDown className="w-3 h-3 mr-1" />
+                  To Back
+                </Button>
               </div>
             </div>
           </div>
-        )}
 
-        {/* Actions */}
-        <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-          <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-            <div className="w-2 h-2 bg-destructive rounded-full mr-2"></div>
-            Actions
-          </h3>
+          {/* Color Picker Modals - Only show if the corresponding properties are visible */}
+          {!["eraser", "laser"].includes(selectedElement.type) && (
+            <ColorPickerModal
+              isOpen={isStrokeColorModalOpen}
+              onClose={() => setIsStrokeColorModalOpen(false)}
+              onColorSelect={(color) =>
+                updateSelectedElements({ strokeColor: color })
+              }
+              selectedColor={selectedElement.strokeColor}
+              title="Choose Stroke Color"
+              colors={allStrokeColors}
+            />
+          )}
 
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onElementDuplicate(selectedElement)}
-              className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-              data-testid="button-duplicate"
-            >
-              <Copy className="w-3 h-3 mr-1" />
-              Duplicate
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onElementDelete(selectedElement.id)}
-              className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 border-red-300 dark:border-red-600"
-              data-testid="button-delete"
-            >
-              <Trash2 className="w-3 h-3 mr-1" />
-              Delete
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onBringToFront(selectedElement.id)}
-              className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-              data-testid="button-bring-to-front"
-            >
-              <ArrowUp className="w-3 h-3 mr-1" />
-              To Front
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onSendToBack(selectedElement.id)}
-              className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-              data-testid="button-send-to-back"
-            >
-              <ArrowDown className="w-3 h-3 mr-1" />
-              To Back
-            </Button>
-          </div>
+          {!["freehand", "line", "arrow", "eraser", "laser"].includes(
+            selectedElement.type
+          ) && (
+            <ColorPickerModal
+              isOpen={isFillColorModalOpen}
+              onClose={() => setIsFillColorModalOpen(false)}
+              onColorSelect={(color) =>
+                updateSelectedElements({ fillColor: color })
+              }
+              selectedColor={selectedElement.fillColor}
+              title="Choose Fill Color"
+              colors={allFillColors}
+            />
+          )}
+        </aside>
+      ) : (
+        <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-40">
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-lg text-black dark:text-white"
+            onClick={() => setIsPropertiesPanelOpen(true)}
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Properties
+          </Button>
         </div>
-      </div>
-
-      {/* Color Picker Modals */}
-      <ColorPickerModal
-        isOpen={isStrokeColorModalOpen}
-        onClose={() => setIsStrokeColorModalOpen(false)}
-        onColorSelect={(color) =>
-          updateSelectedElements({ strokeColor: color })
-        }
-        selectedColor={selectedElement.strokeColor}
-        title="Choose Stroke Color"
-        colors={allStrokeColors}
-      />
-
-      <ColorPickerModal
-        isOpen={isFillColorModalOpen}
-        onClose={() => setIsFillColorModalOpen(false)}
-        onColorSelect={(color) => updateSelectedElements({ fillColor: color })}
-        selectedColor={selectedElement.fillColor}
-        title="Choose Fill Color"
-        colors={allFillColors}
-      />
-    </aside>
+      )}
+    </>
   );
 }

@@ -13,13 +13,13 @@ export default function ScrollToContentButton({
   if (!isVisible) return null;
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+    <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-none z-10">
       <Button
         onClick={onClick}
-        className="pointer-events-auto shadow-lg hover:shadow-xl transition-all duration-300 bg-primary/90 hover:bg-primary text-primary-foreground px-6 py-3 rounded-full"
+        className="pointer-events-auto shadow-lg hover:shadow-xl transition-all duration-300 bg-white/95 dark:bg-gray-800/95 hover:bg-white dark:hover:bg-gray-800 text-black dark:text-white border border-gray-200 dark:border-gray-700 px-6 py-3 rounded-lg backdrop-blur-sm"
         size="lg"
       >
-        <Focus />
+        <Focus className="h-4 w-4 mr-2" />
         Scroll to Content
       </Button>
     </div>

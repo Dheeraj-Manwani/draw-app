@@ -13,7 +13,7 @@ import { LogOut, User } from "lucide-react";
 import { useUser } from "@clerk/clerk-react";
 
 interface UserAvatarProps {
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xsm";
   showName?: boolean;
 }
 
@@ -37,6 +37,12 @@ export default function UserAvatar({
 
   const getSizeClasses = () => {
     switch (size) {
+      case "xsm":
+        return {
+          avatar: "h-6 w-6",
+          text: "text-xs",
+          dropdown: "w-40",
+        };
       case "sm":
         return {
           avatar: "h-8 w-8",
