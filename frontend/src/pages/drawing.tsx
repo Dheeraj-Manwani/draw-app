@@ -12,6 +12,7 @@ import PropertiesPanel from "@/components/PropertiesPanel";
 import AIDiagramModal from "@/components/AIDiagramModal";
 import LottieLoader from "@/components/LottieLoader";
 import MetaTags from "@/components/MetaTags";
+import OnboardingOverlay from "@/components/OnboardingOverlay";
 import LoginModal from "@/components/LoginModal";
 import { geminiService } from "@/lib/geminiService";
 import { type CanvasElement } from "@/types/canvas";
@@ -814,39 +815,12 @@ export default function Drawing() {
         }
       }
 
-      // Tool shortcuts
-      // switch (e.key) {
-      //   case "v":
-      //     setTool("select");
-      //     break;
-      //   case "h":
-      //     setTool("hand");
-      //     break;
-      //   case "r":
-      //     setTool("rectangle");
-      //     break;
-      //   case "o":
-      //     setTool("ellipse");
-      //     break;
-      //   case "l":
-      //     setTool("line");
-      //     break;
-      //   case "a":
-      //     setTool("arrow");
-      //     break;
-      //   case "p":
-      //     setTool("freehand");
-      //     break;
-      //   case "t":
-      //     setTool("text");
-      //     break;
-      //   case "Delete":
-      //   case "Backspace":
-      //     getSelectedElements().forEach((element) =>
-      //       handleElementDelete(element.id)
-      //     );
-      //     break;
-      // }
+      // Handle delete key for selected elements
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        const selected = getSelectedElements();
+        selected.forEach((element) => handleElementDelete(element.id));
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -1016,6 +990,12 @@ export default function Drawing() {
           }
         }}
         textInput={textInput}
+        showDrawingInstruction={
+          state.elements.length === 0 &&
+          state.tool !== "select" &&
+          state.tool !== "hand" &&
+          !textInput
+        }
       />
 
       <div className="flex-1 overflow-hidden relative">
@@ -1045,20 +1025,24 @@ export default function Drawing() {
           onTextInputChange={handleTextInputChange}
         />
 
+        {/* Onboarding Overlay - Show when canvas is empty */}
+        <OnboardingOverlay
+          isVisible={state.elements.length === 0}
+          currentTool={state.tool}
+        />
+
         {/* Properties Panel - Absolutely positioned */}
-        {state.selectedElementIds.length > 0 && (
-          <div className="absolute top-0 right-0 h-full z-50">
-            <PropertiesPanel
-              selectedElements={getSelectedElements()}
-              onElementUpdate={handleElementUpdate}
-              onElementDelete={handleElementDelete}
-              onElementDuplicate={handleElementDuplicate}
-              onBringToFront={handleBringToFront}
-              onSendToBack={handleSendToBack}
-              onClearSelection={clearSelection}
-            />
-          </div>
-        )}
+        <div className="absolute top-0 right-0 h-full z-50">
+          <PropertiesPanel
+            selectedElements={getSelectedElements()}
+            onElementUpdate={handleElementUpdate}
+            onElementDelete={handleElementDelete}
+            onElementDuplicate={handleElementDuplicate}
+            onBringToFront={handleBringToFront}
+            onSendToBack={handleSendToBack}
+            onClearSelection={clearSelection}
+          />
+        </div>
       </div>
 
       {/* Tool Palette - Fixed at bottom */}
@@ -1069,6 +1053,7 @@ export default function Drawing() {
         onAIDiagram={() => setIsAIDiagramModalOpen(true)}
         toolLocked={state.toolLocked}
         onToggleToolLock={toggleToolLock}
+        isEmpty={state.elements.length === 0}
       />
 
       {/* 

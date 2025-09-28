@@ -51,6 +51,7 @@ interface ToolbarProps {
     position: { x: number; y: number };
     isEditing?: boolean;
   } | null;
+  showDrawingInstruction?: boolean;
 }
 
 export default function Toolbar({
@@ -74,6 +75,7 @@ export default function Toolbar({
   isSignedIn = true,
   onShowLoginModal,
   textInput,
+  showDrawingInstruction = false,
 }: ToolbarProps) {
   const { theme } = useTheme();
   const [isEditingName, setIsEditingName] = useState(false);
@@ -157,6 +159,15 @@ export default function Toolbar({
         <div className="absolute top-full left-0 right-0 z-50 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-6 py-2 text-center">
           <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
             Click anywhere else to finalize the text
+          </p>
+        </div>
+      )}
+
+      {/* Drawing instruction message - positioned below header */}
+      {showDrawingInstruction && !textInput && (
+        <div className="absolute top-full left-0 right-0 z-50 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800 px-6 py-2 text-center">
+          <p className="text-sm text-green-700 dark:text-green-300 font-medium">
+            Click on canvas and drag to draw
           </p>
         </div>
       )}

@@ -302,14 +302,9 @@ export default function PropertiesPanel({
     });
   };
 
+  // Return null if no elements are selected to prevent flickering
   if (!hasSelection) {
-    return (
-      <aside className="w-80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-l border-gray-200 dark:border-gray-700 shadow-lg p-6 overflow-y-auto h-full">
-        <div className="flex items-center justify-center h-32 text-gray-600 dark:text-gray-400 text-sm">
-          Select an element to edit properties
-        </div>
-      </aside>
-    );
+    return null;
   }
 
   return (
@@ -317,7 +312,7 @@ export default function PropertiesPanel({
       {(isMobile && isPropertiesPanelOpen) || !isMobile ? (
         <aside
           className={cn(
-            "w-80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-l border-gray-200 dark:border-gray-700 shadow-lg p-6 overflow-y-auto h-full",
+            "w-80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-l border-gray-200 dark:border-gray-700 shadow-lg p-6 overflow-y-auto h-full z-50",
             isMobile && "pb-24"
           )}
         >
@@ -653,7 +648,7 @@ export default function PropertiesPanel({
             />
           )}
         </aside>
-      ) : (
+      ) : isMobile ? (
         <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-40">
           <Button
             variant="outline"
@@ -665,7 +660,7 @@ export default function PropertiesPanel({
             Properties
           </Button>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

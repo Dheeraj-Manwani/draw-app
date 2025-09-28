@@ -25,6 +25,7 @@ interface ToolPaletteProps {
   onAIDiagram: () => void;
   toolLocked: boolean;
   onToggleToolLock: () => void;
+  isEmpty?: boolean;
 }
 
 const tools = [
@@ -53,6 +54,7 @@ export default function ToolPalette({
   onAIDiagram,
   toolLocked,
   onToggleToolLock,
+  isEmpty = false,
 }: ToolPaletteProps) {
   const isMobile = useIsMobile();
   const [showMoreTools, setShowMoreTools] = useState(false);
@@ -105,12 +107,16 @@ export default function ToolPalette({
         isMobile
           ? "bottom-4 left-1/2 transform -translate-x-1/2"
           : "bottom-6 left-1/2 transform -translate-x-1/2"
-      } z-50`}
+      } z-40`}
     >
       <div
         className={`backdrop-blur-sm ${
           isMobile ? "rounded-xl" : "rounded-2xl"
-        } px-2 py-2 shadow-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-700 text-black dark:text-white`}
+        } px-2 py-2 shadow-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-700 text-black dark:text-white transition-all duration-1000 ${
+          isEmpty && currentTool === "select"
+            ? "animate-pulse shadow-2xl shadow-blue-500/50 dark:shadow-blue-400/50 ring-2 ring-blue-500/30 dark:ring-blue-400/30 hover:shadow-blue-500/70 dark:hover:shadow-blue-400/70"
+            : ""
+        }`}
       >
         <div
           className={`flex items-center ${
@@ -130,6 +136,10 @@ export default function ToolPalette({
                 toolLocked
                   ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
                   : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
+              } ${
+                isEmpty && !toolLocked && currentTool === "select"
+                  ? "shadow-lg shadow-blue-500/30 dark:shadow-blue-400/30 ring-1 ring-blue-500/20 dark:ring-blue-400/20"
+                  : ""
               }`}
               onClick={onToggleToolLock}
               title={toolLocked ? "Unlock Tool" : "Lock Tool"}
@@ -139,7 +149,7 @@ export default function ToolPalette({
             </Button>
 
             {/* Tool label on hover */}
-            <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+            <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
               {toolLocked ? "Unlock Tool" : "Lock Tool"}
               <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
             </div>
@@ -195,6 +205,10 @@ export default function ToolPalette({
                       isLaser && !isActive
                         ? "hover:bg-red-500/10 hover:text-red-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
                         : ""
+                    } ${
+                      isEmpty && !isActive && currentTool === "select"
+                        ? "shadow-lg shadow-blue-500/30 dark:shadow-blue-400/30 ring-1 ring-blue-500/20 dark:ring-blue-400/20"
+                        : ""
                     }`}
                     onClick={() => {
                       if (isGenerate && onGenerateDrawing) {
@@ -212,7 +226,7 @@ export default function ToolPalette({
                   </Button>
 
                   {/* Tool label on hover */}
-                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
                     {tool.label}
                     <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
                   </div>
@@ -242,14 +256,14 @@ export default function ToolPalette({
               </Button>
 
               {/* Tool label on hover */}
-              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
                 Shapes
                 <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
               </div>
 
               {/* Shapes tools dropdown */}
               {showShapesTools && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-50">
+                <div className="absolute bottom-full mb-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-40">
                   <div className="flex flex-col gap-1">
                     {shapesTools.map((toolId) => {
                       const tool = tools.find((t) => t.id === toolId);
@@ -308,14 +322,14 @@ export default function ToolPalette({
               </Button>
 
               {/* Tool label on hover */}
-              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
                 More Tools
                 <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
               </div>
 
               {/* More tools dropdown */}
               {showMoreTools && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-50">
+                <div className="absolute bottom-full mb-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-40">
                   <div className="flex flex-col gap-1">
                     {moreTools.map((toolId) => {
                       const tool = tools.find((t) => t.id === toolId);
