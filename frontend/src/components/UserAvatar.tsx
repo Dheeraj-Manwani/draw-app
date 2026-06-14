@@ -8,9 +8,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SignOutButton } from "@clerk/clerk-react";
+// import { SignOutButton } from "@clerk/clerk-react";
 import { LogOut, User } from "lucide-react";
-import { useUser } from "@clerk/clerk-react";
+// import { useUser } from "@clerk/clerk-react";
 
 interface UserAvatarProps {
   size?: "sm" | "md" | "lg" | "xsm";
@@ -21,7 +21,12 @@ export default function UserAvatar({
   size = "md",
   showName = false,
 }: UserAvatarProps) {
-  const { user } = useUser();
+  // Clerk auth temporarily disabled — use a mock user
+  const user = {
+    fullName: "Guest User",
+    emailAddresses: [{ emailAddress: "guest@example.com" }],
+  };
+  // const { user } = useUser();
   const [isOpen, setIsOpen] = useState(false);
 
   if (!user) return null;
@@ -118,12 +123,11 @@ export default function UserAvatar({
 
         <DropdownMenuSeparator className="bg-gray-200 dark:bg-gray-700" />
 
-        <SignOutButton>
-          <DropdownMenuItem className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 focus:bg-red-50 dark:focus:bg-red-950 cursor-pointer">
-            <LogOut className="mr-2 h-4 w-4" />
-            Sign Out
-          </DropdownMenuItem>
-        </SignOutButton>
+        {/* Clerk SignOutButton temporarily disabled */}
+        <DropdownMenuItem className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 focus:bg-red-50 dark:focus:bg-red-950 cursor-pointer">
+          <LogOut className="mr-2 h-4 w-4" />
+          Sign Out
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

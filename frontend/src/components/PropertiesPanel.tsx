@@ -2,8 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
-  ArrowUp,
+  ArrowDownToLine,
   ArrowDown,
+  ArrowUp,
+  ArrowUpToLine,
   Copy,
   Trash2,
   MoreHorizontal,
@@ -12,6 +14,7 @@ import {
 } from "lucide-react";
 import { type CanvasElement } from "@/types/canvas";
 import ColorPickerModal from "./ColorPickerModal";
+import { islandClass } from "./ToolPalette";
 import { useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -26,22 +29,21 @@ interface PropertiesPanelProps {
   onClearSelection: () => void;
 }
 
-// Main colors shown in the properties panel
+// Main colors shown in the properties panel (Excalidraw-style palette)
 const mainStrokeColors = [
-  { color: "#1e293b", label: "Black" },
-  { color: "#dc2626", label: "Red" },
-  { color: "#16a34a", label: "Green" },
-  { color: "#2563eb", label: "Blue" },
-  { color: "#9333ea", label: "Purple" },
+  { color: "#1e1e1e", label: "Ink" },
+  { color: "#e03131", label: "Red" },
+  { color: "#2f9e44", label: "Green" },
+  { color: "#1971c2", label: "Blue" },
+  { color: "#f08c00", label: "Orange" },
 ];
 
 const mainFillColors = [
   { color: "transparent", label: "Transparent" },
-  { color: "#1e293b", label: "Black" },
-  { color: "#dc2626", label: "Red" },
-  { color: "#16a34a", label: "Green" },
-  { color: "#2563eb", label: "Blue" },
-  { color: "#9333ea", label: "Purple" },
+  { color: "#ffc9c9", label: "Red" },
+  { color: "#b2f2bb", label: "Green" },
+  { color: "#a5d8ff", label: "Blue" },
+  { color: "#ffec99", label: "Yellow" },
 ];
 
 // All colors for the modal
@@ -302,6 +304,26 @@ export default function PropertiesPanel({
     });
   };
 
+  // Shared styling helpers for the floating panel
+  const sectionLabel =
+    "mb-1.5 block text-[11px] font-medium text-gray-500 dark:text-[#9a9aa6]";
+
+  const swatchClass = (active: boolean) =>
+    cn(
+      "h-6 w-6 shrink-0 rounded-md border transition-transform hover:scale-110",
+      active
+        ? "border-transparent ring-2 ring-[#6965db] ring-offset-1 ring-offset-white dark:ring-offset-[#232329]"
+        : "border-gray-300 dark:border-[#3a3a44]"
+    );
+
+  const pillClass = (active: boolean) =>
+    cn(
+      "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
+      active
+        ? "border-transparent bg-[#e0dfff] text-[#4a47b1] dark:bg-[#46437e] dark:text-white"
+        : "border-gray-200 text-gray-700 hover:bg-gray-100 dark:border-[#3a3a44] dark:text-[#ced4da] dark:hover:bg-[#31303b]"
+    );
+
   // Return null if no elements are selected to prevent flickering
   if (!hasSelection) {
     return null;
@@ -312,215 +334,189 @@ export default function PropertiesPanel({
       {(isMobile && isPropertiesPanelOpen) || !isMobile ? (
         <aside
           className={cn(
-            "w-80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-l border-gray-200 dark:border-gray-700 shadow-lg p-6 overflow-y-auto h-full z-50",
-            isMobile && "pb-24"
+            "fixed z-40 rounded-xl p-3",
+            islandClass,
+            isMobile
+              ? "bottom-3 left-1/2 max-h-[62vh] w-[19rem] -translate-x-1/2 overflow-y-auto"
+              : "left-4 top-[4.75rem] w-[14rem] max-h-[calc(100vh-7rem)] overflow-y-auto"
           )}
         >
-          <div className="space-y-4">
-            {/* Header with Close Button */}
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-black dark:text-white">
+          {/* Header (mobile gets a close affordance; desktop stays minimal) */}
+          {isMobile && (
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-black dark:text-white">
                 Properties
               </h2>
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => {
                   onClearSelection();
-                  if (isMobile) {
-                    setIsPropertiesPanelOpen(false);
-                  }
+                  setIsPropertiesPanelOpen(false);
                 }}
-                className="h-8 w-8 p-0 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors duration-200"
-                title="Close properties panel"
+                className="h-7 w-7 rounded-lg p-0 hover:bg-gray-100 dark:hover:bg-[#31303b]"
+                title="Close"
               >
-                <X className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                <X className="h-4 w-4 text-gray-500 dark:text-[#9a9aa6]" />
               </Button>
             </div>
+          )}
 
-            {/* Element Info */}
-            <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-              <h3 className="text-sm font-semibold text-black dark:text-white">
-                {/* Selection */}
-                {selectedElements.length === 1 &&
-                  `${
-                    selectedElement.type.charAt(0).toUpperCase() +
-                    selectedElement.type.slice(1)
-                  }`}
-              </h3>
-              {/* <div
-                className="text-sm text-gray-600 dark:text-gray-400"
-                data-testid="text-selection-info"
-              >
-                {selectedElements.length === 1
-                  ? `${
-                      selectedElement.type.charAt(0).toUpperCase() +
-                      selectedElement.type.slice(1)
-                    } selected`
-                  : `${selectedElements.length} elements selected`}
-              </div> */}
-            </div>
-
-            {/* Stroke Properties - Only show for elements that have strokes */}
+          <div className="space-y-3.5">
+            {/* Stroke color */}
             {!["eraser", "laser"].includes(selectedElement.type) && (
-              <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-                <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-                  <div className="w-2 h-2 bg-primary rounded-full mr-2"></div>
-                  Stroke
-                </h3>
-
-                {/* Stroke Color */}
-                <div className="mb-3">
-                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                    Color
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    {mainStrokeColors.map(({ color, label }) => (
-                      <button
-                        key={color}
-                        className={`w-7 h-7 rounded-md border-2 transition-all duration-200 hover:scale-110 ${
-                          selectedElement.strokeColor === color
-                            ? "border-black dark:border-white shadow-md ring-2 ring-primary/20"
-                            : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
-                        }`}
-                        style={{ backgroundColor: color }}
-                        onClick={() =>
-                          updateSelectedElements({ strokeColor: color })
-                        }
-                        title={label}
-                        data-testid={`stroke-color-${color}`}
-                      />
-                    ))}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsStrokeColorModalOpen(true)}
-                      className="w-7 h-7 p-0 flex items-center justify-center border-gray-300 dark:border-gray-600 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
-                      title="More colors"
-                    >
-                      <MoreHorizontal className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Stroke Width */}
-                <div className="mb-3">
-                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                    Width: {selectedElement.strokeWidth}px
-                  </Label>
-                  <Slider
-                    value={[selectedElement.strokeWidth]}
-                    onValueChange={([value]) =>
-                      updateSelectedElements({ strokeWidth: value })
-                    }
-                    min={1}
-                    max={20}
-                    step={1}
-                    className="w-full"
-                    data-testid="slider-stroke-width"
-                  />
-                </div>
-
-                {/* Stroke Style */}
-                <div className="mb-3">
-                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                    Style
-                  </Label>
-                  <div className="flex gap-2">
-                    {["solid", "dashed", "dotted"].map((style) => (
-                      <Button
-                        key={style}
-                        variant={
-                          selectedElement.strokeStyle === style
-                            ? "default"
-                            : "outline"
-                        }
-                        size="sm"
-                        onClick={() =>
-                          updateSelectedElements({ strokeStyle: style as any })
-                        }
-                        className="text-xs capitalize text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-                        data-testid={`stroke-style-${style}`}
-                      >
-                        {style}
-                      </Button>
-                    ))}
-                  </div>
+              <div>
+                <Label className={sectionLabel}>Stroke</Label>
+                <div className="flex items-center gap-1.5">
+                  {mainStrokeColors.map(({ color, label }) => (
+                    <button
+                      key={color}
+                      className={swatchClass(
+                        selectedElement.strokeColor === color
+                      )}
+                      style={{ backgroundColor: color }}
+                      onClick={() =>
+                        updateSelectedElements({ strokeColor: color })
+                      }
+                      title={label}
+                      data-testid={`stroke-color-${color}`}
+                    />
+                  ))}
+                  <div className="mx-0.5 h-6 w-px bg-gray-200 dark:bg-[#3a3a44]" />
+                  <button
+                    onClick={() => setIsStrokeColorModalOpen(true)}
+                    className={cn(
+                      swatchClass(false),
+                      "flex items-center justify-center"
+                    )}
+                    style={{ backgroundColor: selectedElement.strokeColor }}
+                    title="More colors"
+                  >
+                    <MoreHorizontal className="h-3 w-3 mix-blend-difference text-white" />
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Fill Properties - Only show for elements that can have fills */}
+            {/* Background / fill color */}
             {!["freehand", "line", "arrow", "eraser", "laser"].includes(
               selectedElement.type
             ) && (
-              <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-                <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-                  <div className="w-2 h-2 bg-accent rounded-full mr-2"></div>
-                  Fill
-                </h3>
-
-                {/* Fill Color */}
-                <div className="mb-3">
-                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                    Fill Color
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    {mainFillColors.map(({ color, label }) => (
-                      <button
-                        key={color}
-                        className={`w-7 h-7 rounded-md border-2 transition-all duration-200 hover:scale-110 ${
-                          selectedElement.fillColor === color
-                            ? "border-black dark:border-white shadow-md ring-2 ring-primary/20"
-                            : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
-                        } ${
+              <div>
+                <Label className={sectionLabel}>Background</Label>
+                <div className="flex items-center gap-1.5">
+                  {mainFillColors.map(({ color, label }) => (
+                    <button
+                      key={color}
+                      className={cn(
+                        swatchClass(selectedElement.fillColor === color),
+                        color === "transparent" && "bg-transparent"
+                      )}
+                      style={{
+                        backgroundColor:
+                          color === "transparent" ? undefined : color,
+                        backgroundImage:
                           color === "transparent"
-                            ? "bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-600 dark:to-gray-500 relative"
-                            : ""
-                        }`}
-                        style={{
-                          backgroundColor:
-                            color === "transparent" ? undefined : color,
-                        }}
-                        onClick={() =>
-                          updateSelectedElements({ fillColor: color })
-                        }
-                        title={label}
-                        data-testid={`fill-color-${color}`}
-                      >
-                        {color === "transparent" && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-3 h-0.5 bg-gray-500 dark:bg-gray-400 rotate-45"></div>
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsFillColorModalOpen(true)}
-                      className="w-7 h-7 p-0 flex items-center justify-center border-gray-300 dark:border-gray-600 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
-                      title="More colors"
-                    >
-                      <MoreHorizontal className="h-3 w-3" />
-                    </Button>
-                  </div>
+                            ? "linear-gradient(45deg,#bbb 25%,transparent 25%),linear-gradient(-45deg,#bbb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#bbb 75%),linear-gradient(-45deg,transparent 75%,#bbb 75%)"
+                            : undefined,
+                        backgroundSize:
+                          color === "transparent" ? "8px 8px" : undefined,
+                        backgroundPosition:
+                          color === "transparent"
+                            ? "0 0,0 4px,4px -4px,-4px 0"
+                            : undefined,
+                      }}
+                      onClick={() =>
+                        updateSelectedElements({ fillColor: color })
+                      }
+                      title={label}
+                      data-testid={`fill-color-${color}`}
+                    />
+                  ))}
+                  <div className="mx-0.5 h-6 w-px bg-gray-200 dark:bg-[#3a3a44]" />
+                  <button
+                    onClick={() => setIsFillColorModalOpen(true)}
+                    className={cn(
+                      swatchClass(false),
+                      "flex items-center justify-center"
+                    )}
+                    style={{
+                      backgroundColor:
+                        selectedElement.fillColor === "transparent"
+                          ? undefined
+                          : selectedElement.fillColor,
+                    }}
+                    title="More colors"
+                  >
+                    <MoreHorizontal className="h-3 w-3 text-gray-600 dark:text-gray-300" />
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Text Properties (for text elements) */}
-            {selectedElement.type === "text" && (
-              <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-                <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-                  <div className="w-2 h-2 bg-secondary rounded-full mr-2"></div>
-                  Text
-                </h3>
+            {/* Stroke width */}
+            {!["eraser", "laser"].includes(selectedElement.type) && (
+              <div>
+                <Label className={sectionLabel}>Stroke width</Label>
+                <div className="flex items-center gap-1.5">
+                  {[
+                    { w: 1, label: "Thin" },
+                    { w: 2, label: "Bold" },
+                    { w: 4, label: "Extra bold" },
+                  ].map(({ w, label }) => (
+                    <button
+                      key={w}
+                      onClick={() => updateSelectedElements({ strokeWidth: w })}
+                      className={pillClass(selectedElement.strokeWidth === w)}
+                      title={label}
+                      data-testid={`stroke-width-${w}`}
+                    >
+                      <span
+                        className="block w-5 rounded-full bg-current"
+                        style={{ height: Math.max(1, w) }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-                {/* Font Size */}
-                <div className="mb-3">
-                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                    Size: {selectedElement.fontSize || 16}px
+            {/* Stroke style */}
+            {!["eraser", "laser"].includes(selectedElement.type) && (
+              <div>
+                <Label className={sectionLabel}>Stroke style</Label>
+                <div className="flex items-center gap-1.5">
+                  {(["solid", "dashed", "dotted"] as const).map((style) => (
+                    <button
+                      key={style}
+                      onClick={() => updateSelectedElements({ strokeStyle: style })}
+                      className={pillClass(selectedElement.strokeStyle === style)}
+                      title={style}
+                      data-testid={`stroke-style-${style}`}
+                    >
+                      <span
+                        className="block w-5 border-t-2 border-current"
+                        style={{
+                          borderStyle:
+                            style === "solid"
+                              ? "solid"
+                              : style === "dashed"
+                              ? "dashed"
+                              : "dotted",
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Text properties */}
+            {selectedElement.type === "text" && (
+              <>
+                <div>
+                  <Label className={sectionLabel}>
+                    Font size: {selectedElement.fontSize || 16}px
                   </Label>
                   <Slider
                     value={[selectedElement.fontSize || 16]}
@@ -534,87 +530,111 @@ export default function PropertiesPanel({
                     data-testid="slider-font-size"
                   />
                 </div>
-
-                {/* Font Weight */}
-                <div className="mb-3">
-                  <Label className="text-xs font-medium text-black dark:text-white mb-2 block">
-                    Weight
-                  </Label>
-                  <div className="flex gap-2">
-                    {["normal", "bold"].map((weight) => (
-                      <Button
+                <div>
+                  <Label className={sectionLabel}>Font weight</Label>
+                  <div className="flex items-center gap-1.5">
+                    {(["normal", "bold"] as const).map((weight) => (
+                      <button
                         key={weight}
-                        variant={
-                          selectedElement.fontWeight === weight
-                            ? "default"
-                            : "outline"
-                        }
-                        size="sm"
                         onClick={() =>
-                          updateSelectedElements({ fontWeight: weight as any })
+                          updateSelectedElements({ fontWeight: weight })
                         }
-                        className="text-xs capitalize text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                        className={cn(
+                          pillClass(selectedElement.fontWeight === weight),
+                          "px-2 text-xs capitalize"
+                        )}
                         data-testid={`font-weight-${weight}`}
                       >
                         {weight}
-                      </Button>
+                      </button>
                     ))}
                   </div>
                 </div>
-              </div>
+              </>
             )}
 
-            {/* Actions */}
-            <div className={cn("bg-gray-100 dark:bg-gray-700 rounded-lg p-3")}>
-              <h3 className="text-sm font-semibold mb-3 text-black dark:text-white flex items-center">
-                <div className="w-2 h-2 bg-destructive rounded-full mr-2"></div>
-                Actions
-              </h3>
-
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onElementDuplicate(selectedElement)}
-                  className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-                  data-testid="button-duplicate"
-                >
-                  <Copy className="w-3 h-3 mr-1" />
-                  Duplicate
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onElementDelete(selectedElement.id)}
-                  className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 border-red-300 dark:border-red-600"
-                  data-testid="button-delete"
-                >
-                  <Trash2 className="w-3 h-3 mr-1" />
-                  Delete
-                </Button>
+            {/* Opacity */}
+            <div>
+              <Label className={sectionLabel}>Opacity</Label>
+              <Slider
+                value={[Math.round((selectedElement.opacity ?? 1) * 100)]}
+                onValueChange={([value]) =>
+                  updateSelectedElements({ opacity: value / 100 })
+                }
+                min={0}
+                max={100}
+                step={10}
+                className="w-full"
+                data-testid="slider-opacity"
+              />
+              <div className="mt-1 flex justify-between text-[10px] text-gray-400 dark:text-[#7a7a86]">
+                <span>0</span>
+                <span>100</span>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onBringToFront(selectedElement.id)}
-                  className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-                  data-testid="button-bring-to-front"
-                >
-                  <ArrowUp className="w-3 h-3 mr-1" />
-                  To Front
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
+            {/* Layers */}
+            <div>
+              <Label className={sectionLabel}>Layers</Label>
+              <div className="flex items-center gap-1.5">
+                <button
                   onClick={() => onSendToBack(selectedElement.id)}
-                  className="text-xs text-black dark:text-white border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  className={pillClass(false)}
+                  title="Send to back"
                   data-testid="button-send-to-back"
                 >
-                  <ArrowDown className="w-3 h-3 mr-1" />
-                  To Back
-                </Button>
+                  <ArrowDownToLine className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => onSendToBack(selectedElement.id)}
+                  className={pillClass(false)}
+                  title="Send backward"
+                  data-testid="button-send-backward"
+                >
+                  <ArrowDown className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => onBringToFront(selectedElement.id)}
+                  className={pillClass(false)}
+                  title="Bring forward"
+                  data-testid="button-bring-forward"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => onBringToFront(selectedElement.id)}
+                  className={pillClass(false)}
+                  title="Bring to front"
+                  data-testid="button-bring-to-front"
+                >
+                  <ArrowUpToLine className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div>
+              <Label className={sectionLabel}>Actions</Label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => onElementDuplicate(selectedElement)}
+                  className={pillClass(false)}
+                  title="Duplicate"
+                  data-testid="button-duplicate"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => onElementDelete(selectedElement.id)}
+                  className={cn(
+                    pillClass(false),
+                    "text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  )}
+                  title="Delete"
+                  data-testid="button-delete"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             </div>
           </div>
@@ -649,16 +669,17 @@ export default function PropertiesPanel({
           )}
         </aside>
       ) : isMobile ? (
-        <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-40">
-          <Button
-            variant="outline"
-            size="sm"
-            className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-lg text-black dark:text-white"
+        <div className="fixed bottom-20 left-1/2 z-40 -translate-x-1/2 transform">
+          <button
+            className={cn(
+              "flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-gray-700 dark:text-[#ced4da]",
+              islandClass
+            )}
             onClick={() => setIsPropertiesPanelOpen(true)}
           >
-            <Settings className="w-4 h-4 mr-2" />
+            <Settings className="h-4 w-4" />
             Properties
-          </Button>
+          </button>
         </div>
       ) : null}
     </>

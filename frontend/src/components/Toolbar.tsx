@@ -5,12 +5,12 @@ import { type BackgroundType } from "@/types/canvas";
 import {
   ZoomIn,
   ZoomOut,
-  Edit3,
   Check,
   X,
   Undo,
   Redo,
   LogIn,
+  Share2,
 } from "lucide-react";
 import {
   exportToPNG,
@@ -24,6 +24,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import HamburgerMenu from "./HamburgerMenu";
 import { ThemeToggle } from "./ThemeToggle";
 import UserAvatar from "./UserAvatar";
+import { islandClass } from "./ToolPalette";
 import { cn } from "@/lib/utils";
 
 interface ToolbarProps {
@@ -152,34 +153,25 @@ export default function Toolbar({
     }
   };
 
+  const ghostBtn =
+    "h-8 w-8 p-0 rounded-lg text-gray-700 dark:text-[#ced4da] hover:bg-gray-100 dark:hover:bg-[#31303b] disabled:opacity-40 transition-colors";
+
   return (
-    <div className="relative">
-      {/* Text editing message - positioned below header */}
-      {textInput && (
-        <div className="absolute top-full left-0 right-0 z-50 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-6 py-2 text-center">
-          <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-            Click anywhere else to finalize the text
+    <>
+      {/* Centered helper hint below the top toolbar */}
+      {(textInput || showDrawingInstruction) && (
+        <div className="pointer-events-none fixed left-1/2 top-[4.25rem] z-30 -translate-x-1/2 transform">
+          <p className="text-sm font-medium text-gray-500 dark:text-[#9a9aa6]">
+            {textInput
+              ? "Click anywhere else to finalize the text"
+              : "Click and drag, release when you're finished"}
           </p>
         </div>
       )}
 
-      {/* Drawing instruction message - positioned below header */}
-      {showDrawingInstruction && !textInput && (
-        <div className="absolute top-full left-0 right-0 z-50 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800 px-6 py-2 text-center">
-          <p className="text-sm text-green-700 dark:text-green-300 font-medium">
-            Click on canvas and drag to draw
-          </p>
-        </div>
-      )}
-
-      <header
-        className={cn(
-          "flex items-center justify-between px-6 py-2.5 bg-white dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 shadow-sm  text-black dark:text-white/80",
-          isMobile && "px-2 py-2 justify-start"
-        )}
-      >
-        {/* Left Section - Hamburger Menu & Undo/Redo */}
-        <div className={cn("flex items-center gap-2 w-60", isMobile && " w-7")}>
+      {/* Top-left: menu + drawing name */}
+      <div className="fixed left-4 top-4 z-40 flex items-center gap-2">
+        <div className={cn("rounded-xl p-1", islandClass)}>
           <HamburgerMenu
             onNew={onNewCanvas}
             onOpen={onOpen}
@@ -189,189 +181,161 @@ export default function Toolbar({
             onClearCanvas={onClearCanvas}
             backgroundType={backgroundType}
           />
-
-          {/* Undo/Redo Buttons */}
-          {!isMobile && (
-            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!canUndo}
-                className="h-8 w-8 p-0 text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
-                onClick={onUndo}
-                title="Undo (Ctrl+Z)"
-              >
-                <Undo className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!canRedo}
-                className="h-8 w-8 p-0 text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
-                onClick={onRedo}
-                title="Redo (Ctrl+Y)"
-              >
-                <Redo className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
         </div>
 
-        {/* Center Section - Drawing Name */}
-        <div
-          className={cn(
-            "flex items-center justify-center flex-1 px-4 w-60",
-            isMobile && "w-full justify-start px-0"
-          )}
-        >
-          <div
-            className={cn(
-              "flex items-center gap-2 min-w-0 max-w-2xl",
-              isMobile && "w-full gap-0.5"
-            )}
-          >
+        {!isMobile && (
+          <div className={cn("rounded-xl px-1 py-1", islandClass)}>
             {isEditingName ? (
-              <div
-                className={cn(
-                  "flex items-center gap-2",
-                  isMobile && "w-full mb-0.5 gap-0.5"
-                )}
-              >
+              <div className="flex items-center gap-1">
                 <Input
                   value={tempName}
                   onChange={(e) => setTempName(e.target.value)}
                   onKeyDown={handleNameKeyDown}
                   onBlur={handleNameSave}
-                  className={cn(
-                    "text-2xl font-bold bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-black dark:text-white focus:border-primary min-w-0 max-w-96 text-center p-0",
-                    isMobile && "text-sm text-start p-1 px-2.5 w-40"
-                  )}
+                  className="h-8 w-44 border-0 bg-transparent px-2 text-sm font-medium text-black focus-visible:ring-0 dark:text-white"
                   placeholder="Untitled drawing"
                   autoFocus
                 />
                 <Button
-                  size="sm"
+                  size="icon"
                   variant="ghost"
                   onClick={handleNameSave}
-                  className="p-1 h-8 w-8 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
+                  className="h-8 w-8 rounded-lg p-0 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
                 >
-                  <Check className="w-4 h-4" />
+                  <Check className="h-4 w-4" />
                 </Button>
                 <Button
-                  size="sm"
+                  size="icon"
                   variant="ghost"
                   onClick={handleNameCancel}
-                  className="p-1 h-8 w-8 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  className="h-8 w-8 rounded-lg p-0 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="h-4 w-4" />
                 </Button>
               </div>
             ) : (
-              <Button
-                variant="ghost"
+              <button
                 onClick={handleNameEdit}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group",
-                  isMobile && "px-1 py-0 mb-0.5"
-                )}
+                className="flex h-8 max-w-[16rem] items-center rounded-lg px-3 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-[#ced4da] dark:hover:bg-[#31303b]"
+                title="Rename drawing"
               >
-                <h1
-                  className={cn(
-                    "text-xl font-bold min-w-0 truncate max-w-2xl text-center",
-                    isMobile && "text-base max-w-48"
-                  )}
-                >
+                <span className="truncate">
                   {drawingName || "Untitled drawing"}
-                </h1>
-                <Edit3 className="w-5 h-5 opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 dark:text-gray-400" />
-              </Button>
+                </span>
+              </button>
             )}
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Right Section - Zoom Controls & Theme Toggle */}
+      {/* Top-right: theme, share, user */}
+      <div className="fixed right-4 top-4 z-40 flex items-center gap-2">
         <div
           className={cn(
-            "flex items-center gap-2 w-60",
-            isMobile && "justify-end"
+            "flex items-center gap-0.5 rounded-xl px-1 py-1",
+            islandClass
           )}
         >
-          {/* Zoom Controls */}
-          {!isMobile && (
-            <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 h-10">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                onClick={onZoomOut}
-                data-testid="button-zoom-out"
-                title="Zoom Out"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </Button>
-              <Button
-                className="text-sm font-medium min-w-12 text-center px-3   text-black dark:text-white rounded"
-                data-testid="text-zoom-level"
-                onClick={onFitToContent}
-                variant="default"
-              >
-                {Math.round(zoom * 100)}%
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                onClick={onZoomIn}
-                data-testid="button-zoom-in"
-                title="Zoom In"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
-          {isMobile && (
-            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!canUndo}
-                className="h-6 w-6 p-0 text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
-                onClick={onUndo}
-                title="Undo (Ctrl+Z)"
-              >
-                <Undo className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!canRedo}
-                className="h-6 w-6 p-0 text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
-                onClick={onRedo}
-                title="Redo (Ctrl+Y)"
-              >
-                <Redo className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-          {/* Theme Toggle */}
           <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onShare}
+            className={cn(ghostBtn, isMobile && "h-7 w-7")}
+            title="Share / Export"
+          >
+            <Share2 className="h-4 w-4" />
+          </Button>
+        </div>
 
-          {/* Authentication Button */}
+        <div className={cn("rounded-full p-0.5", islandClass)}>
           {isSignedIn ? (
-            <UserAvatar size={"sm"} />
+            <UserAvatar size="sm" />
           ) : (
             <Button
-              variant="outline"
-              size="sm"
-              className="border-green-200 text-green-600 hover:bg-green-50 hover:border-green-300 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950 dark:hover:border-green-700"
+              variant="ghost"
+              size="icon"
+              className={cn(ghostBtn, "rounded-full")}
               title="Login"
               onClick={onShowLoginModal}
             >
-              <LogIn className="w-4 h-4" />
+              <LogIn className="h-4 w-4" />
             </Button>
           )}
         </div>
-      </header>
-    </div>
+      </div>
+
+      {/* Bottom-left: zoom + undo/redo */}
+      <div
+        className={cn(
+          "fixed bottom-4 left-4 z-40 flex items-center gap-2",
+          isMobile && "bottom-3 left-3 gap-1.5"
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center rounded-xl px-0.5 py-0.5",
+            islandClass
+          )}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className={ghostBtn}
+            onClick={onZoomOut}
+            data-testid="button-zoom-out"
+            title="Zoom out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <button
+            className="min-w-[3.25rem] rounded-lg px-1 py-1 text-center text-xs font-semibold text-gray-700 hover:bg-gray-100 dark:text-[#ced4da] dark:hover:bg-[#31303b]"
+            data-testid="text-zoom-level"
+            onClick={onFitToContent}
+            title="Reset / fit to content"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={ghostBtn}
+            onClick={onZoomIn}
+            data-testid="button-zoom-in"
+            title="Zoom in"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div
+          className={cn(
+            "flex items-center rounded-xl px-0.5 py-0.5",
+            islandClass
+          )}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={!canUndo}
+            className={ghostBtn}
+            onClick={onUndo}
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={!canRedo}
+            className={ghostBtn}
+            onClick={onRedo}
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </>
   );
 }

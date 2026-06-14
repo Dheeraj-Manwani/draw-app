@@ -5,7 +5,7 @@ import {
   Circle,
   Minus,
   ArrowRight,
-  PenTool,
+  Pencil,
   Type,
   Eraser,
   Diamond,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useState, useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
 
 interface ToolPaletteProps {
   currentTool: string;
@@ -29,23 +30,22 @@ interface ToolPaletteProps {
 }
 
 const tools = [
-  { id: "lock", icon: Lock, label: "Lock", shortcut: "" },
-  { id: "hand", icon: Hand, label: "Hand", shortcut: "" },
-  { id: "select", icon: MousePointer, label: "Select", shortcut: "1" },
+  { id: "hand", icon: Hand, label: "Hand (panning tool)", shortcut: "H" },
+  { id: "select", icon: MousePointer, label: "Selection", shortcut: "1" },
   { id: "rectangle", icon: Square, label: "Rectangle", shortcut: "2" },
   { id: "diamond", icon: Diamond, label: "Diamond", shortcut: "3" },
   { id: "ellipse", icon: Circle, label: "Ellipse", shortcut: "4" },
   { id: "arrow", icon: ArrowRight, label: "Arrow", shortcut: "5" },
   { id: "line", icon: Minus, label: "Line", shortcut: "6" },
-  { id: "freehand", icon: PenTool, label: "Freehand", shortcut: "7" },
+  { id: "freehand", icon: Pencil, label: "Draw", shortcut: "7" },
   { id: "text", icon: Type, label: "Text", shortcut: "8" },
-  // { id: "image", icon: Image, label: "Image", shortcut: "9" },
   { id: "eraser", icon: Eraser, label: "Eraser", shortcut: "0" },
-  // { id: "shapes", icon: Shapes, label: "More Shapes", shortcut: "" },
-  // { id: "embed", icon: Link, label: "Embed" },
-  // { id: "generate", icon: Sparkles, label: "Generate Drawing" },
-  { id: "laser", icon: Zap, label: "Laser" },
+  { id: "laser", icon: Zap, label: "Laser pointer", shortcut: "K" },
 ];
+
+// Shared island styling so every floating panel feels consistent
+export const islandClass =
+  "bg-white/95 dark:bg-[#232329]/95 backdrop-blur-md border border-gray-200 dark:border-[#33333d] shadow-[0_1px_10px_rgba(0,0,0,0.12)] dark:shadow-[0_2px_14px_rgba(0,0,0,0.55)]";
 
 export default function ToolPalette({
   currentTool,
@@ -75,6 +75,12 @@ export default function ToolPalette({
       )
     : tools;
 
+  // Tooltip sits below the bar on desktop (bar is at top) and above on mobile
+  const tooltipPos = isMobile ? "bottom-full mb-2" : "top-full mt-2";
+  const tooltipArrow = isMobile
+    ? "top-full border-t-4 border-t-gray-900 dark:border-t-[#2b2b33]"
+    : "bottom-full border-b-4 border-b-gray-900 dark:border-b-[#2b2b33]";
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -101,194 +107,160 @@ export default function ToolPalette({
     };
   }, [showMoreTools, showShapesTools]);
 
+  // Base styling for a single tool button
+  const toolButtonClass = (isActive: boolean, accent?: "eraser" | "laser") =>
+    cn(
+      "relative flex items-center justify-center rounded-lg transition-all duration-150",
+      isMobile ? "h-9 w-9" : "h-9 w-9",
+      isActive
+        ? "bg-[#6965db] text-white shadow-sm hover:bg-[#6965db] hover:text-white dark:bg-[#46437e] dark:hover:bg-[#46437e]"
+        : "text-gray-700 dark:text-[#ced4da] hover:bg-gray-100 dark:hover:bg-[#31303b]",
+      accent === "eraser" &&
+        isActive &&
+        "bg-red-500 hover:bg-red-500 dark:bg-red-600 dark:hover:bg-red-600",
+      accent === "laser" &&
+        isActive &&
+        "bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-500 hover:to-orange-500 dark:from-red-500 dark:to-orange-500"
+    );
+
+  const renderShortcut = (shortcut?: string) =>
+    shortcut ? (
+      <span className="pointer-events-none absolute bottom-0 right-1 text-[9px] font-medium leading-none text-gray-400 dark:text-[#7a7a86]">
+        {shortcut}
+      </span>
+    ) : null;
+
+  const tooltip = (label: string) => (
+    <div
+      className={cn(
+        "absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100 dark:bg-[#2b2b33]",
+        tooltipPos
+      )}
+    >
+      {label}
+      <div
+        className={cn(
+          "absolute left-1/2 h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-transparent",
+          tooltipArrow
+        )}
+      />
+    </div>
+  );
+
   return (
     <div
-      className={`fixed ${
-        isMobile
-          ? "bottom-4 left-1/2 transform -translate-x-1/2"
-          : "bottom-6 left-1/2 transform -translate-x-1/2"
-      } z-40`}
+      className={cn(
+        "fixed z-40 left-1/2 -translate-x-1/2 transform",
+        isMobile ? "bottom-4" : "top-4"
+      )}
     >
       <div
-        className={`backdrop-blur-sm ${
-          isMobile ? "rounded-xl" : "rounded-2xl"
-        } px-2 py-2 shadow-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-700 text-black dark:text-white transition-all duration-1000 ${
+        className={cn(
+          "rounded-xl px-1.5 py-1.5",
+          islandClass,
           isEmpty && currentTool === "select"
-            ? "animate-pulse shadow-2xl shadow-blue-500/50 dark:shadow-blue-400/50 ring-2 ring-blue-500/30 dark:ring-blue-400/30 hover:shadow-blue-500/70 dark:hover:shadow-blue-400/70"
+            ? "ring-2 ring-[#6965db]/40 dark:ring-[#6965db]/50"
             : ""
-        }`}
+        )}
       >
-        <div
-          className={`flex items-center ${
-            isMobile ? "gap-1.5 justify-center" : "gap-2"
-          }`}
-        >
+        <div className="flex items-center gap-1">
           {/* Lock button */}
-          <div className="relative group">
+          <div className="group relative">
             <Button
               variant="ghost"
-              size="sm"
-              className={`${
-                isMobile ? "p-2" : "p-3"
-              } transition-all duration-200 ${
-                isMobile ? "rounded-lg" : "rounded-xl"
-              } ${
-                toolLocked
-                  ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
-                  : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
-              } ${
-                isEmpty && !toolLocked && currentTool === "select"
-                  ? "shadow-lg shadow-blue-500/30 dark:shadow-blue-400/30 ring-1 ring-blue-500/20 dark:ring-blue-400/20"
-                  : ""
-              }`}
+              size="icon"
+              className={cn(
+                toolButtonClass(toolLocked),
+                "p-0",
+                toolLocked &&
+                  "bg-[#6965db] text-white dark:bg-[#46437e]"
+              )}
               onClick={onToggleToolLock}
-              title={toolLocked ? "Unlock Tool" : "Lock Tool"}
               data-testid="tool-lock"
             >
-              <Lock className={isMobile ? "w-6 h-6" : "w-10 h-10"} />
+              <Lock className="h-4 w-4" />
             </Button>
-
-            {/* Tool label on hover */}
-            <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
-              {toolLocked ? "Unlock Tool" : "Lock Tool"}
-              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
-            </div>
+            {tooltip(
+              toolLocked
+                ? "Keep selected tool active after drawing"
+                : "Keep selected tool active after drawing"
+            )}
           </div>
 
-          {/* Vertical separator */}
-          <div
-            className={`w-px ${
-              isMobile ? "h-6" : "h-8"
-            } bg-gray-400 dark:bg-gray-600 mx-1`}
-          />
+          {/* Separator */}
+          <div className="mx-0.5 h-6 w-px bg-gray-200 dark:bg-[#3a3a44]" />
 
-          {/* Other tools */}
-          {visibleTools
-            .filter((tool) => tool.id !== "lock")
-            .map((tool) => {
-              const Icon = tool.icon;
-              const isActive = currentTool === tool.id;
-              const isEraser = tool.id === "eraser";
-              const isGenerate = tool.id === "generate";
-              const isLaser = tool.id === "laser";
+          {/* Tools */}
+          {visibleTools.map((tool) => {
+            const Icon = tool.icon;
+            const isActive = currentTool === tool.id;
+            const accent =
+              tool.id === "eraser"
+                ? "eraser"
+                : tool.id === "laser"
+                ? "laser"
+                : undefined;
 
-              return (
-                <div key={tool.id} className="relative group">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`${
-                      isMobile ? "p-2" : "p-3"
-                    } transition-all duration-200 ${
-                      isMobile ? "rounded-lg" : "rounded-xl"
-                    } ${
-                      isActive
-                        ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
-                        : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
-                    } ${
-                      isEraser && isActive
-                        ? "bg-red-600 text-white hover:bg-red-600 hover:text-white"
-                        : ""
-                    } ${
-                      isEraser && !isActive
-                        ? "hover:bg-red-600/20 hover:text-red-400"
-                        : ""
-                    } ${
-                      isGenerate && !isActive
-                        ? "hover:bg-primary/10 hover:text-primary"
-                        : ""
-                    } ${
-                      isLaser && isActive
-                        ? "bg-gradient-to-r from-red-500 to-orange-500 text-white border-red-500/20"
-                        : ""
-                    } ${
-                      isLaser && !isActive
-                        ? "hover:bg-red-500/10 hover:text-red-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                        : ""
-                    } ${
-                      isEmpty && !isActive && currentTool === "select"
-                        ? "shadow-lg shadow-blue-500/30 dark:shadow-blue-400/30 ring-1 ring-blue-500/20 dark:ring-blue-400/20"
-                        : ""
-                    }`}
-                    onClick={() => {
-                      if (isGenerate && onGenerateDrawing) {
-                        onGenerateDrawing();
-                      } else if (tool.id === "generate" && onAIDiagram) {
-                        onAIDiagram();
-                      } else {
-                        onToolChange(tool.id);
-                      }
-                    }}
-                    title={tool.label}
-                    data-testid={`tool-${tool.id}`}
-                  >
-                    <Icon className={isMobile ? "w-6 h-6" : "w-10 h-10"} />
-                  </Button>
-
-                  {/* Tool label on hover */}
-                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
-                    {tool.label}
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
-                  </div>
-                </div>
-              );
-            })}
+            return (
+              <div key={tool.id} className="group relative">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(toolButtonClass(isActive, accent), "p-0")}
+                  onClick={() => onToolChange(tool.id)}
+                  title={tool.label}
+                  data-testid={`tool-${tool.id}`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {renderShortcut(tool.shortcut)}
+                </Button>
+                {tooltip(tool.label)}
+              </div>
+            );
+          })}
 
           {/* Shapes tools button for mobile */}
           {isMobile && (
-            <div className="relative group" ref={shapesToolsRef}>
+            <div className="group relative" ref={shapesToolsRef}>
               <Button
                 variant="ghost"
-                size="sm"
-                className={`${
-                  isMobile ? "p-2" : "p-3"
-                } transition-all duration-200 ${
-                  isMobile ? "rounded-lg" : "rounded-xl"
-                } ${
-                  shapesTools.includes(currentTool)
-                    ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
-                    : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
-                }`}
+                size="icon"
+                className={cn(
+                  toolButtonClass(shapesTools.includes(currentTool)),
+                  "p-0"
+                )}
                 onClick={() => setShowShapesTools(!showShapesTools)}
                 title="Shapes"
               >
-                <Shapes className={isMobile ? "w-6 h-6" : "w-10 h-10"} />
+                <Shapes className="h-4 w-4" />
               </Button>
 
-              {/* Tool label on hover */}
-              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
-                Shapes
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
-              </div>
-
-              {/* Shapes tools dropdown */}
               {showShapesTools && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-40">
+                <div
+                  className={cn(
+                    "absolute bottom-full right-0 mb-2 rounded-lg p-1.5 z-40",
+                    islandClass
+                  )}
+                >
                   <div className="flex flex-col gap-1">
                     {shapesTools.map((toolId) => {
                       const tool = tools.find((t) => t.id === toolId);
                       if (!tool) return null;
-
                       const Icon = tool.icon;
                       const isActive = currentTool === toolId;
-
                       return (
                         <Button
                           key={toolId}
                           variant="ghost"
-                          size="sm"
-                          className={`p-2 transition-all duration-200 rounded-lg ${
-                            isActive
-                              ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
-                              : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
-                          }`}
+                          size="icon"
+                          className={cn(toolButtonClass(isActive), "p-0")}
                           onClick={() => {
                             onToolChange(toolId);
                             setShowShapesTools(false);
                           }}
                           title={tool.label}
                         >
-                          <Icon className="w-6 h-6" />
+                          <Icon className="h-4 w-4" />
                         </Button>
                       );
                     })}
@@ -300,79 +272,52 @@ export default function ToolPalette({
 
           {/* More tools button for mobile */}
           {isMobile && (
-            <div className="relative group" ref={moreToolsRef}>
+            <div className="group relative" ref={moreToolsRef}>
               <Button
                 variant="ghost"
-                size="sm"
-                className={`${
-                  isMobile ? "p-2" : "p-3"
-                } transition-all duration-200 ${
-                  isMobile ? "rounded-lg" : "rounded-xl"
-                } ${
-                  moreTools.includes(currentTool)
-                    ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
-                    : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
-                }`}
+                size="icon"
+                className={cn(
+                  toolButtonClass(moreTools.includes(currentTool)),
+                  "p-0"
+                )}
                 onClick={() => setShowMoreTools(!showMoreTools)}
-                title="More Tools"
+                title="More tools"
               >
-                <MoreHorizontal
-                  className={isMobile ? "w-6 h-6" : "w-10 h-10"}
-                />
+                <MoreHorizontal className="h-4 w-4" />
               </Button>
 
-              {/* Tool label on hover */}
-              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white px-2 py-1 rounded-md text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-40">
-                More Tools
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800" />
-              </div>
-
-              {/* More tools dropdown */}
               {showMoreTools && (
-                <div className="absolute bottom-full mb-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-40">
+                <div
+                  className={cn(
+                    "absolute bottom-full right-0 mb-2 rounded-lg p-1.5 z-40",
+                    islandClass
+                  )}
+                >
                   <div className="flex flex-col gap-1">
                     {moreTools.map((toolId) => {
                       const tool = tools.find((t) => t.id === toolId);
                       if (!tool) return null;
-
                       const Icon = tool.icon;
                       const isActive = currentTool === toolId;
-                      const isEraser = toolId === "eraser";
-                      const isLaser = toolId === "laser";
-
+                      const accent =
+                        toolId === "eraser"
+                          ? "eraser"
+                          : toolId === "laser"
+                          ? "laser"
+                          : undefined;
                       return (
                         <Button
                           key={toolId}
                           variant="ghost"
-                          size="sm"
-                          className={`p-2 transition-all duration-200 rounded-lg ${
-                            isActive
-                              ? "bg-purple-600 text-white shadow-lg hover:bg-purple-600 hover:text-white"
-                              : "text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-700/50"
-                          } ${
-                            isEraser && isActive
-                              ? "bg-red-600 text-white hover:bg-red-600 hover:text-white"
-                              : ""
-                          } ${
-                            isEraser && !isActive
-                              ? "hover:bg-red-600/20 hover:text-red-400"
-                              : ""
-                          } ${
-                            isLaser && isActive
-                              ? "bg-gradient-to-r from-red-500 to-orange-500 text-white border-red-500/20"
-                              : ""
-                          } ${
-                            isLaser && !isActive
-                              ? "hover:bg-red-500/10 hover:text-red-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                              : ""
-                          }`}
+                          size="icon"
+                          className={cn(toolButtonClass(isActive, accent), "p-0")}
                           onClick={() => {
                             onToolChange(toolId);
                             setShowMoreTools(false);
                           }}
                           title={tool.label}
                         >
-                          <Icon className="w-6 h-6" />
+                          <Icon className="h-4 w-4" />
                         </Button>
                       );
                     })}

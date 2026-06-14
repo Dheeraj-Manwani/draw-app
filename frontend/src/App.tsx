@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/contexts/ThemeContext";
-import { ClerkProvider } from "@clerk/clerk-react";
+// import { ClerkProvider } from "@clerk/clerk-react";
 import { HelmetProvider } from "react-helmet-async";
 import Home from "@/pages/home";
 import Drawing from "@/pages/drawing";
@@ -22,16 +22,17 @@ function Router() {
 }
 
 function App() {
-  const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+  // Clerk auth temporarily disabled
+  // const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
-  if (!clerkPublishableKey) {
-    throw new Error("Missing Clerk Publishable Key");
-  }
+  // if (!clerkPublishableKey) {
+  //   throw new Error("Missing Clerk Publishable Key");
+  // }
 
   return (
     <HelmetProvider>
-      <ClerkProvider publishableKey={clerkPublishableKey}>
-        <QueryClientProvider client={queryClient}>
+      {/* <ClerkProvider publishableKey={clerkPublishableKey}> */}
+      <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <TooltipProvider>
               <Router />
@@ -86,8 +87,8 @@ function App() {
               />
             </TooltipProvider>
           </ThemeProvider>
-        </QueryClientProvider>
-      </ClerkProvider>
+      </QueryClientProvider>
+      {/* </ClerkProvider> */}
     </HelmetProvider>
   );
 }

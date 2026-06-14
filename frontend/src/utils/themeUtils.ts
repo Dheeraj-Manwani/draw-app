@@ -128,7 +128,7 @@ const invertRgbColor = (rgb: string): string => {
 
 // Get theme-aware background color
 export const getThemeBackgroundColor = (theme: Theme): string => {
-  return theme === "dark" ? "#000000" : "#ffffff";
+  return theme === "dark" ? "#121212" : "#ffffff";
 };
 
 // Get theme-aware text color

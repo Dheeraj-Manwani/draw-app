@@ -280,6 +280,7 @@ export function useCanvas() {
         name?: string;
         backgroundType?: BackgroundType;
         backgroundColor?: string;
+        lastSaved?: string;
       }
     ) => {
       try {

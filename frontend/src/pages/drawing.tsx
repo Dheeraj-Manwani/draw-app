@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import { useUser } from "@clerk/clerk-react";
-import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useCanvas } from "@/hooks/useCanvas";
+import { useElementSync } from "@/hooks/useElementSync";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import Canvas from "@/components/Canvas";
 import Toolbar from "@/components/Toolbar";
 import ToolPalette from "@/components/ToolPalette";
@@ -14,47 +14,28 @@ import LottieLoader from "@/components/LottieLoader";
 import MetaTags from "@/components/MetaTags";
 import OnboardingOverlay from "@/components/OnboardingOverlay";
 import LoginModal from "@/components/LoginModal";
-import { geminiService } from "@/lib/geminiService";
 import { type CanvasElement } from "@/types/canvas";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getInitialStrokeColor } from "@/utils/themeUtils";
-
-// Define CollaborativeUser type locally since @shared/schema is not available
-// interface CollaborativeUser {
-//   id: string;
-//   username: string;
-//   color: string;
-//   cursor?: {
-//     x: number;
-//     y: number;
-//   };
-// }
+import { getContentCenter, getElementsBounds } from "@/lib/canvas-geometry";
+import { openDrawingFromFile, shareDrawing } from "@/lib/drawing-io";
 
 // Generate a unique room ID for this session
 const ROOM_ID = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-// Generate current user info with brand color
-// const CURRENT_USER: CollaborativeUser = {
-//   id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-//   username: "You",
-//   color: "#9D00FF",
-// };
+// Approximate viewport used when centering content (zoom/pan math).
+const VIEWPORT_WIDTH = 800;
+const VIEWPORT_HEIGHT = 600;
 
 export default function Drawing() {
   const { toast } = useToast();
   const { theme } = useTheme();
-  const queryClient = useQueryClient();
-  const { isSignedIn, isLoaded } = useUser();
-  const [match, params] = useRoute("/drawing/:id");
-  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
-  // const [collaborativeUsers, setCollaborativeUsers] = useState<
-  //   CollaborativeUser[]
-  // >([]);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  // Clerk auth temporarily disabled — treat user as signed in
+  const isSignedIn = true;
+
+  const [match] = useRoute("/drawing/:id");
   const [drawingName, setDrawingName] = useState("Untitled drawing");
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
-  const [isAIDiagramModalOpen, setIsAIDiagramModalOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [textInput, setTextInput] = useState<{
     element: CanvasElement;
@@ -62,17 +43,8 @@ export default function Drawing() {
     isEditing?: boolean;
   } | null>(null);
 
-  // Handle text input changes from Canvas
   const handleTextInputChange = useCallback(
-    (
-      newTextInput: {
-        element: CanvasElement;
-        position: { x: number; y: number };
-        isEditing?: boolean;
-      } | null
-    ) => {
-      setTextInput(newTextInput);
-    },
+    (newTextInput: typeof textInput) => setTextInput(newTextInput),
     []
   );
 
@@ -92,7 +64,6 @@ export default function Drawing() {
     setTool,
     setZoom,
     setPan,
-    toggleGrid,
     setBackgroundType,
     setBackgroundColor,
     toggleToolLock,
@@ -103,381 +74,81 @@ export default function Drawing() {
     getSelectedElements,
     saveToLocalStorage,
     loadFromLocalStorage,
-    loadElements,
   } = useCanvas();
 
   // Fetch elements for the room - only for non-default routes
-  const { data: elements = [], isLoading } = useQuery({
+  const { isLoading } = useQuery({
     queryKey: ["/api/rooms", ROOM_ID, "elements"],
-    enabled: !isDefaultRoute, // Only enable API calls for non-default routes
+    enabled: !isDefaultRoute,
   });
 
-  // Create element mutation - only for non-default routes
-  const createElementMutation = useMutation({
-    mutationFn: async (element: CanvasElement) => {
-      if (isDefaultRoute) {
-        // For default route, just return the element without API call
-        return element;
-      }
-      const response = await apiRequest(
-        "POST",
-        `/api/rooms/${ROOM_ID}/elements`,
-        element
-      );
-      return response.json();
-    },
-    onSuccess: () => {
-      if (!isDefaultRoute) {
-        queryClient.invalidateQueries({
-          queryKey: ["/api/rooms", ROOM_ID, "elements"],
-        });
-      }
-    },
-  });
-
-  // Update element mutation - only for non-default routes
-  const updateElementMutation = useMutation({
-    mutationFn: async ({
-      id,
-      updates,
-    }: {
-      id: string;
-      updates: Partial<CanvasElement>;
-    }) => {
-      if (isDefaultRoute) {
-        // For default route, just return the updates without API call
-        return { id, updates };
-      }
-      const response = await apiRequest("PUT", `/api/elements/${id}`, updates);
-      return response.json();
-    },
-    onSuccess: () => {
-      if (!isDefaultRoute) {
-        queryClient.invalidateQueries({
-          queryKey: ["/api/rooms", ROOM_ID, "elements"],
-        });
-      }
-    },
-  });
-
-  // Delete element mutation - only for non-default routes
-  const deleteElementMutation = useMutation({
-    mutationFn: async (id: string) => {
-      if (isDefaultRoute) {
-        // For default route, just return the id without API call
-        return { id };
-      }
-      const response = await apiRequest("DELETE", `/api/elements/${id}`);
-      return response.json();
-    },
-    onSuccess: () => {
-      if (!isDefaultRoute) {
-        queryClient.invalidateQueries({
-          queryKey: ["/api/rooms", ROOM_ID, "elements"],
-        });
-      }
-    },
-  });
-
-  // WebSocket for real-time collaboration
-  // const { isConnected, sendMessage, sendCursorPosition } = useWebSocket({
-  //   roomId: ROOM_ID,
-  //   user: CURRENT_USER,
-  //   onMessage: (message) => {
-  //     switch (message.type) {
-  //       case "element-create":
-  //         queryClient.invalidateQueries({
-  //           queryKey: ["/api/rooms", ROOM_ID, "elements"],
-  //         });
-  //         break;
-  //       case "element-update":
-  //         queryClient.invalidateQueries({
-  //           queryKey: ["/api/rooms", ROOM_ID, "elements"],
-  //         });
-  //         break;
-  //       case "element-delete":
-  //         queryClient.invalidateQueries({
-  //           queryKey: ["/api/rooms", ROOM_ID, "elements"],
-  //         });
-  //         break;
-  //     }
-  //   },
-  //   onUsersChange: setCollaborativeUsers,
-  //   onCursorMove: (cursor) => {
-  //     // Update collaborative users cursor positions
-  //     setCollaborativeUsers((prev) =>
-  //       prev.map((user) =>
-  //         user.id === cursor.userId
-  //           ? {
-  //               ...user,
-  //               cursor: {
-  //                 x: cursor.x,
-  //                 y: cursor.y,
-  //                 userId: cursor.userId,
-  //                 username: user.username,
-  //                 color: user.color,
-  //               },
-  //             }
-  //           : user
-  //       )
-  //     );
-  //   },
-  // });
-
-  // Handle element creation
-  const handleElementCreate = useCallback(
-    (element: CanvasElement, onAdded?: () => void) => {
-      addElement(element, onAdded);
-      createElementMutation.mutate(element);
-
-      // Broadcast to other users
-      // sendMessage({
-      //   type: "element-create",
-      //   data: { element },
-      // });
-    },
-    [
+  // Element CRUD with optimistic local updates + best-effort backend sync
+  const { handleElementCreate, handleElementUpdate, handleElementDelete } =
+    useElementSync({
+      roomId: ROOM_ID,
+      isDefaultRoute,
       addElement,
-      createElementMutation,
-      // sendMessage
-    ]
-  );
-
-  // Handle element updates
-  const handleElementUpdate = useCallback(
-    (id: string, updates: Partial<CanvasElement>) => {
-      updateElement(id, updates);
-      updateElementMutation.mutate({ id, updates });
-
-      // Broadcast to other users
-      // sendMessage({
-      //   type: "element-update",
-      //   data: { id, updates },
-      // });
-    },
-    [
       updateElement,
-      updateElementMutation,
-      // sendMessage
-    ]
-  );
-
-  // Calculate content center for scroll back functionality - finds highest density area
-  const getContentCenter = useCallback(() => {
-    if (state.elements.length === 0) return null;
-
-    // Create a grid to find the highest density area
-    const gridSize = 200; // Grid cell size
-    const densityMap = new Map<string, number>();
-
-    // Count elements in each grid cell
-    state.elements.forEach((element) => {
-      let elementX, elementY, elementWidth, elementHeight;
-
-      if (element.type === "freehand" || element.type === "eraser") {
-        // For freehand elements, calculate bounds from points
-        const points = element.data?.points || [];
-        if (points.length === 0) return;
-
-        let minX = points[0].x;
-        let maxX = points[0].x;
-        let minY = points[0].y;
-        let maxY = points[0].y;
-
-        points.forEach((point: any) => {
-          minX = Math.min(minX, point.x);
-          maxX = Math.max(maxX, point.x);
-          minY = Math.min(minY, point.y);
-          maxY = Math.max(maxY, point.y);
-        });
-
-        elementX = minX;
-        elementY = minY;
-        elementWidth = maxX - minX;
-        elementHeight = maxY - minY;
-      } else {
-        // For other elements, use element bounds
-        elementX = element.x;
-        elementY = element.y;
-        elementWidth = element.width;
-        elementHeight = element.height;
-      }
-
-      // Add this element to all grid cells it overlaps
-      const startGridX = Math.floor(elementX / gridSize);
-      const endGridX = Math.floor((elementX + elementWidth) / gridSize);
-      const startGridY = Math.floor(elementY / gridSize);
-      const endGridY = Math.floor((elementY + elementHeight) / gridSize);
-
-      for (let gx = startGridX; gx <= endGridX; gx++) {
-        for (let gy = startGridY; gy <= endGridY; gy++) {
-          const key = `${gx},${gy}`;
-          densityMap.set(key, (densityMap.get(key) || 0) + 1);
-        }
-      }
+      deleteElement,
     });
 
-    // Find the grid cell with highest density
-    let maxDensity = 0;
-    let bestGridX = 0;
-    let bestGridY = 0;
-
-    for (const [key, density] of densityMap) {
-      if (density > maxDensity) {
-        maxDensity = density;
-        const [gx, gy] = key.split(",").map(Number);
-        bestGridX = gx;
-        bestGridY = gy;
-      }
-    }
-
-    // Return center of the highest density grid cell
-    return {
-      x: (bestGridX + 0.5) * gridSize,
-      y: (bestGridY + 0.5) * gridSize,
-    };
-  }, [state.elements]);
-
-  // Scroll back to content
+  // Scroll back to the densest cluster of content
   const scrollToContent = useCallback(() => {
-    const contentCenter = getContentCenter();
-    if (contentCenter) {
-      // Center the content in the viewport
-      const canvasWidth = 800; // Approximate canvas width
-      const canvasHeight = 600; // Approximate canvas height
-      const newPanX = canvasWidth / 2 - contentCenter.x * state.zoom;
-      const newPanY = canvasHeight / 2 - contentCenter.y * state.zoom;
-      setPan(newPanX, newPanY);
-    }
-  }, [getContentCenter, state.zoom, setPan]);
+    const center = getContentCenter(state.elements);
+    if (!center) return;
+    setPan(
+      VIEWPORT_WIDTH / 2 - center.x * state.zoom,
+      VIEWPORT_HEIGHT / 2 - center.y * state.zoom
+    );
+  }, [state.elements, state.zoom, setPan]);
 
-  // Handle element deletion
-  const handleElementDelete = useCallback(
-    (id: string) => {
-      deleteElement(id);
-      deleteElementMutation.mutate(id);
+  const handleCursorMove = useCallback(() => {
+    // Cursor broadcasting (collaboration) is currently disabled.
+  }, []);
 
-      // Broadcast to other users
-      // sendMessage({
-      //   type: "element-delete",
-      //   data: { id },
-      // });
-    },
-    [
-      deleteElement,
-      deleteElementMutation,
-      // sendMessage
-    ]
+  // Zoom controls
+  const handleZoomIn = useCallback(
+    () => setZoom(state.zoom * 1.2),
+    [state.zoom, setZoom]
   );
-
-  // Handle cursor movement
-  const handleCursorMove = useCallback(
-    (x: number, y: number) => {
-      setCursorPosition({ x, y });
-      // sendCursorPosition(x, y);
-    },
-    [
-      // sendCursorPosition
-    ]
+  const handleZoomOut = useCallback(
+    () => setZoom(state.zoom * 0.8),
+    [state.zoom, setZoom]
   );
-
-  // Handle zoom controls
-  const handleZoomIn = useCallback(() => {
-    setZoom(state.zoom * 1.2);
-  }, [state.zoom, setZoom]);
-
-  const handleZoomOut = useCallback(() => {
-    setZoom(state.zoom * 0.8);
-  }, [state.zoom, setZoom]);
 
   const handleFitToContent = useCallback(() => {
-    if (state.elements.length === 0) {
+    const bounds = getElementsBounds(state.elements);
+    if (!bounds) {
       setZoom(1);
       setPan(0, 0);
       return;
     }
 
-    // Calculate bounding box of all elements
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    state.elements.forEach((element) => {
-      let elementMinX: number,
-        elementMinY: number,
-        elementMaxX: number,
-        elementMaxY: number;
-
-      if (element.type === "freehand" || element.type === "eraser") {
-        // For freehand elements, calculate bounds from points
-        const points = element.data?.points || [];
-        if (points.length === 0) return;
-
-        // Initialize with first point
-        const firstPoint = points[0];
-        elementMinX = firstPoint.x;
-        elementMaxX = firstPoint.x;
-        elementMinY = firstPoint.y;
-        elementMaxY = firstPoint.y;
-
-        // Update bounds with remaining points
-        points.slice(1).forEach((point: any) => {
-          elementMinX = Math.min(elementMinX, point.x);
-          elementMaxX = Math.max(elementMaxX, point.x);
-          elementMinY = Math.min(elementMinY, point.y);
-          elementMaxY = Math.max(elementMaxY, point.y);
-        });
-      } else {
-        // For other elements, use element bounds
-        elementMinX = element.x;
-        elementMinY = element.y;
-        elementMaxX = element.x + element.width;
-        elementMaxY = element.y + element.height;
-      }
-
-      minX = Math.min(minX, elementMinX);
-      minY = Math.min(minY, elementMinY);
-      maxX = Math.max(maxX, elementMaxX);
-      maxY = Math.max(maxY, elementMaxY);
-    });
-
-    // Add some padding around the content
-    const padding = 100;
-    const contentWidth = maxX - minX + padding * 2;
-    const contentHeight = maxY - minY + padding * 2;
-    const contentCenterX = (minX + maxX) / 2;
-    const contentCenterY = (minY + maxY) / 2;
-
-    // Calculate viewport dimensions (approximate canvas size)
-    const viewportWidth = 800;
-    const viewportHeight = 600;
-
-    // Set zoom to 100% (1.0) and center the content
+    const contentCenterX = (bounds.minX + bounds.maxX) / 2;
+    const contentCenterY = (bounds.minY + bounds.maxY) / 2;
     const newZoom = 1.0;
-    const newPanX = viewportWidth / 2 - contentCenterX * newZoom;
-    const newPanY = viewportHeight / 2 - contentCenterY * newZoom;
 
     setZoom(newZoom);
-    setPan(newPanX, newPanY);
+    setPan(
+      VIEWPORT_WIDTH / 2 - contentCenterX * newZoom,
+      VIEWPORT_HEIGHT / 2 - contentCenterY * newZoom
+    );
   }, [state.elements, setZoom, setPan]);
 
-  // Handle element duplication
   const handleElementDuplicate = useCallback(
     (element: CanvasElement) => {
-      const duplicatedElement: CanvasElement = {
+      handleElementCreate({
         ...element,
         id: `element_${Date.now()}_${Math.random()}`,
         x: element.x + 20,
         y: element.y + 20,
         zIndex: state.elements.length,
-      };
-      handleElementCreate(duplicatedElement);
+      });
     },
     [handleElementCreate, state.elements.length]
   );
 
-  // Handle layer management
+  // Layer ordering
   const handleBringToFront = useCallback(
     (id: string) => {
       const maxZIndex = Math.max(...state.elements.map((el) => el.zIndex));
@@ -494,29 +165,24 @@ export default function Drawing() {
     [state.elements, handleElementUpdate]
   );
 
-  // Handle drawing name change
   const handleDrawingNameChange = useCallback(
     (name: string) => {
       setDrawingName(name);
 
       if (isDefaultRoute) {
-        // Update the name in localStorage for default route
         const savedData = loadFromLocalStorage("default_drawing");
         if (savedData) {
           savedData.name = name;
           saveToLocalStorage("default_drawing", savedData);
         } else {
-          // Create new data if none exists
-          const drawingData = {
+          saveToLocalStorage("default_drawing", {
             elements: state.elements,
-            name: name,
+            name,
             backgroundType: state.backgroundType,
             backgroundColor: state.backgroundColor,
-          };
-          saveToLocalStorage("default_drawing", drawingData);
+          });
         }
       } else {
-        // Use existing behavior for non-default routes
         localStorage.setItem(`drawing_name_${currentRoomId}`, name);
       }
     },
@@ -531,30 +197,23 @@ export default function Drawing() {
     ]
   );
 
-  // Handle saving
   const handleSave = useCallback(() => {
-    setLastSaved(new Date());
-
     if (isDefaultRoute) {
-      // Save to localStorage for default route
-      const drawingData = {
+      saveToLocalStorage("default_drawing", {
         elements: state.elements,
         name: drawingName,
         backgroundType: state.backgroundType,
         backgroundColor: state.backgroundColor,
         lastSaved: new Date().toISOString(),
-      };
-      saveToLocalStorage("default_drawing", drawingData);
-      toast(`${drawingName} saved - Your drawing has been saved locally`);
+      });
     } else {
-      // Save to localStorage for non-default routes (existing behavior)
       localStorage.setItem(
         `canvas_${currentRoomId}`,
         JSON.stringify(state.elements)
       );
       localStorage.setItem(`drawing_name_${currentRoomId}`, drawingName);
-      toast(`${drawingName} saved - Your drawing has been saved locally`);
     }
+    toast(`${drawingName} saved - Your drawing has been saved locally`);
   }, [
     state.elements,
     state.backgroundType,
@@ -566,18 +225,13 @@ export default function Drawing() {
     currentRoomId,
   ]);
 
-  // Handle new canvas
   const handleNewCanvas = useCallback(() => {
-    // Clear all elements
-    state.elements.forEach((element) => {
-      handleElementDelete(element.id);
-    });
+    state.elements.forEach((element) => handleElementDelete(element.id));
     clearSelection();
     setZoom(1);
     setPan(0, 0);
     setDrawingName("Untitled drawing");
 
-    // Clear localStorage for default route
     if (isDefaultRoute) {
       localStorage.removeItem("default_drawing");
     }
@@ -590,30 +244,21 @@ export default function Drawing() {
     isDefaultRoute,
   ]);
 
-  // Handle clear canvas - more efficient way to clear all elements
   const handleClearCanvas = useCallback(() => {
-    // Clear all elements by deleting them one by one (this ensures proper cleanup)
     if (state.elements.length > 0) {
-      // Create a copy of elements to avoid mutation during iteration
-      const elementsToDelete = [...state.elements];
-      const elementIds = elementsToDelete.map((element) => element.id);
-      deleteMultiElements(elementIds);
+      deleteMultiElements(state.elements.map((element) => element.id));
     }
-
-    // Clear selection and reset view
     clearSelection();
     setZoom(1);
     setPan(0, 0);
 
-    // Clear localStorage for default route
     if (isDefaultRoute) {
       localStorage.removeItem("default_drawing");
     }
-
     toast("Canvas cleared");
   }, [
     state.elements,
-    deleteElement,
+    deleteMultiElements,
     clearSelection,
     setZoom,
     setPan,
@@ -621,72 +266,13 @@ export default function Drawing() {
     toast,
   ]);
 
-  // Handle generate drawing
-  const handleGenerateDrawing = useCallback(
-    async (prompt: string) => {
-      setIsGenerating(true);
-      try {
-        const generatedElements = await geminiService.generateDrawing(prompt);
-
-        // Calculate viewport center for positioning
-        const viewportCenterX = -state.panX / state.zoom + 400; // Approximate canvas center
-        const viewportCenterY = -state.panY / state.zoom + 300;
-
-        // Position elements relative to viewport center
-        generatedElements.forEach((element, index) => {
-          const offsetX = (index % 3) * 50; // Spread elements slightly
-          const offsetY = Math.floor(index / 3) * 50;
-
-          const positionedElement: CanvasElement = {
-            ...element,
-            id: `generated_${Date.now()}_${index}`,
-            x: viewportCenterX + element.x - 400 + offsetX, // Center around viewport
-            y: viewportCenterY + element.y - 300 + offsetY,
-            zIndex: state.elements.length + index,
-          };
-
-          handleElementCreate(positionedElement);
-        });
-
-        // toast({
-        //   title: "Drawing Generated!",
-        //   description: `Successfully generated ${generatedElements.length} elements from your prompt.`,
-        // });
-
-        setIsGenerateModalOpen(false);
-      } catch (error) {
-        console.error("Error generating drawing:", error);
-        // toast({
-        //   title: "Generation Failed",
-        //   description:
-        //     error instanceof Error
-        //       ? error.message
-        //       : "Failed to generate drawing. Please try again.",
-        //   variant: "destructive",
-        // });
-      } finally {
-        setIsGenerating(false);
-      }
-    },
-    [
-      state.panX,
-      state.panY,
-      state.zoom,
-      state.elements.length,
-      handleElementCreate,
-      toast,
-    ]
-  );
-
-  // Handle AI diagram insertion
+  // Insert an AI-generated Mermaid diagram as a text element at viewport center
   const handleInsertAIDiagram = useCallback(
     (diagramData: string) => {
-      // Calculate viewport center for positioning
       const viewportCenterX = -state.panX / state.zoom + 400;
       const viewportCenterY = -state.panY / state.zoom + 300;
 
-      // Create a new text element with the Mermaid diagram
-      const newElement: CanvasElement = {
+      handleElementCreate({
         id: `ai_diagram_${Date.now()}_${Math.random()}`,
         type: "text",
         x: viewportCenterX - 200,
@@ -704,9 +290,7 @@ export default function Drawing() {
         text: diagramData,
         fontSize: 12,
         fontWeight: "normal",
-      };
-
-      handleElementCreate(newElement);
+      });
       toast(
         "Diagram Inserted: Your AI-generated diagram has been added to the canvas."
       );
@@ -722,56 +306,45 @@ export default function Drawing() {
     ]
   );
 
-  // Load saved drawing data on mount - different logic for default route
+  // Load saved drawing metadata on mount
   useEffect(() => {
     if (isDefaultRoute) {
-      // Load from localStorage for default route
       const savedData = loadFromLocalStorage("default_drawing");
       if (savedData) {
-        if (savedData.name) {
-          setDrawingName(savedData.name);
-        }
-        if (savedData.backgroundType) {
+        if (savedData.name) setDrawingName(savedData.name);
+        if (savedData.backgroundType)
           setBackgroundType(savedData.backgroundType);
-        }
-        if (savedData.backgroundColor) {
+        if (savedData.backgroundColor)
           setBackgroundColor(savedData.backgroundColor);
-        }
       }
     } else {
-      // Load saved drawing name for non-default routes
       const savedName = localStorage.getItem(`drawing_name_${currentRoomId}`);
-      if (savedName) {
-        setDrawingName(savedName);
-      }
+      if (savedName) setDrawingName(savedName);
     }
   }, [
     isDefaultRoute,
     loadFromLocalStorage,
     setBackgroundType,
     setBackgroundColor,
+    currentRoomId,
   ]);
 
   // Auto-save every 30 seconds
   useEffect(() => {
-    const interval = setInterval(() => {
-      handleSave();
-    }, 30000);
-
+    const interval = setInterval(handleSave, 30000);
     return () => clearInterval(interval);
   }, [handleSave]);
 
-  // Auto-save to localStorage when elements change (for default route only)
+  // Auto-save to localStorage when elements change (default route only)
   useEffect(() => {
     if (isDefaultRoute && state.elements.length > 0) {
-      const drawingData = {
+      saveToLocalStorage("default_drawing", {
         elements: state.elements,
         name: drawingName,
         backgroundType: state.backgroundType,
         backgroundColor: state.backgroundColor,
         lastSaved: new Date().toISOString(),
-      };
-      saveToLocalStorage("default_drawing", drawingData);
+      });
     }
   }, [
     state.elements,
@@ -782,59 +355,15 @@ export default function Drawing() {
     saveToLocalStorage,
   ]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        switch (e.key) {
-          case "z":
-            e.preventDefault();
-            if (e.shiftKey) {
-              redo();
-            } else {
-              undo();
-            }
-            break;
-          case "y":
-            e.preventDefault();
-            redo();
-            break;
-          case "s":
-            e.preventDefault();
-            handleSave();
-            break;
-          case "n":
-            e.preventDefault();
-            handleNewCanvas();
-            break;
-          case "d":
-            e.preventDefault();
-            const selected = getSelectedElements();
-            selected.forEach(handleElementDuplicate);
-            break;
-        }
-      }
-
-      // Handle delete key for selected elements
-      if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        const selected = getSelectedElements();
-        selected.forEach((element) => handleElementDelete(element.id));
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
+  useKeyboardShortcuts({
     undo,
     redo,
-    handleSave,
-    handleNewCanvas,
+    onSave: handleSave,
+    onNewCanvas: handleNewCanvas,
     getSelectedElements,
-    handleElementDuplicate,
-    setTool,
-    handleElementDelete,
-  ]);
+    onElementDuplicate: handleElementDuplicate,
+    onElementDelete: handleElementDelete,
+  });
 
   if (isLoading && !isDefaultRoute) {
     return (
@@ -850,12 +379,10 @@ export default function Drawing() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background dark:bg-gray-900">
+    <div className="relative h-screen w-full overflow-hidden bg-background dark:bg-[#121212]">
       <MetaTags
         title={
-          drawingName
-            ? `${drawingName} - Draw It`
-            : "Draw It - Collaborative Drawing"
+          drawingName ? `${drawingName} - Draw It` : "Draw It - Collaborative Drawing"
         }
         description={
           drawingName
@@ -864,6 +391,7 @@ export default function Drawing() {
         }
         type="website"
       />
+
       <Toolbar
         canUndo={canUndo}
         canRedo={canRedo}
@@ -882,113 +410,27 @@ export default function Drawing() {
         onClearCanvas={handleClearCanvas}
         isSignedIn={isSignedIn}
         onShowLoginModal={() => setShowLoginModal(true)}
-        onOpen={() => {
-          // Create file input for loading saved drawings
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = ".json";
-          input.onchange = (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (file) {
-              const reader = new FileReader();
-              reader.onload = (e) => {
-                try {
-                  const data = JSON.parse(e.target?.result as string);
-
-                  // Validate the data structure
-                  if (data.elements && Array.isArray(data.elements)) {
-                    // Clear current canvas
-                    state.elements.forEach((element) => {
-                      handleElementDelete(element.id);
-                    });
-                    clearSelection();
-
-                    // Load the drawing
-                    data.elements.forEach((element: CanvasElement) => {
-                      handleElementCreate(element);
-                    });
-
-                    // Update drawing name if provided
-                    if (data.name) {
-                      handleDrawingNameChange(data.name);
-                    }
-
-                    // Set background if provided
-                    if (data.backgroundType) {
-                      setBackgroundType(data.backgroundType);
-                    }
-                    if (data.backgroundColor) {
-                      setBackgroundColor(data.backgroundColor);
-                    }
-
-                    toast(
-                      `Drawing "${
-                        data.name || "Untitled"
-                      }" loaded successfully!`
-                    );
-                  } else {
-                    toast(
-                      "Invalid file format. Please select a valid drawing file.",
-                      { variant: "destructive" }
-                    );
-                  }
-                } catch (error) {
-                  console.error("Error loading drawing:", error);
-                  toast(
-                    "Error loading drawing. Please check the file format.",
-                    { variant: "destructive" }
-                  );
-                }
-              };
-              reader.readAsText(file);
-            }
-          };
-          input.click();
-        }}
-        onShare={() => {
-          // Create shareable drawing data
-          const shareableData = {
-            name: drawingName,
+        onOpen={() =>
+          openDrawingFromFile({
+            currentElements: state.elements,
+            onElementDelete: handleElementDelete,
+            onElementCreate: handleElementCreate,
+            onClearSelection: clearSelection,
+            onDrawingNameChange: handleDrawingNameChange,
+            onBackgroundTypeChange: setBackgroundType,
+            onBackgroundColorChange: setBackgroundColor,
+            toast,
+          })
+        }
+        onShare={() =>
+          shareDrawing({
+            drawingName,
             elements: state.elements,
             backgroundType: state.backgroundType,
             backgroundColor: state.backgroundColor,
-            createdAt: new Date().toISOString(),
-            version: "1.0",
-          };
-
-          // Create a blob with the drawing data
-          const blob = new Blob([JSON.stringify(shareableData, null, 2)], {
-            type: "application/json",
-          });
-
-          // Create download link
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${drawingName
-            .replace(/[^a-z0-9]/gi, "_")
-            .toLowerCase()}_drawing.json`;
-
-          // Trigger download
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-
-          // Also copy to clipboard if supported
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard
-              .writeText(JSON.stringify(shareableData, null, 2))
-              .then(() => {
-                toast("Drawing exported and copied to clipboard!");
-              })
-              .catch(() => {
-                toast("Drawing exported successfully!");
-              });
-          } else {
-            toast("Drawing exported successfully!");
-          }
-        }}
+            toast,
+          })
+        }
         textInput={textInput}
         showDrawingInstruction={
           state.elements.length === 0 &&
@@ -998,7 +440,7 @@ export default function Drawing() {
         }
       />
 
-      <div className="flex-1 overflow-hidden relative">
+      <div className="absolute inset-0 overflow-hidden">
         <Canvas
           elements={state.elements}
           selectedElementIds={state.selectedElementIds}
@@ -1030,40 +472,29 @@ export default function Drawing() {
           isVisible={state.elements.length === 0}
           currentTool={state.tool}
         />
-
-        {/* Properties Panel - Absolutely positioned */}
-        <div className="absolute top-0 right-0 h-full z-50">
-          <PropertiesPanel
-            selectedElements={getSelectedElements()}
-            onElementUpdate={handleElementUpdate}
-            onElementDelete={handleElementDelete}
-            onElementDuplicate={handleElementDuplicate}
-            onBringToFront={handleBringToFront}
-            onSendToBack={handleSendToBack}
-            onClearSelection={clearSelection}
-          />
-        </div>
       </div>
 
-      {/* Tool Palette - Fixed at bottom */}
+      {/* Properties Panel - self-positioned floating island (left) */}
+      <PropertiesPanel
+        selectedElements={getSelectedElements()}
+        onElementUpdate={handleElementUpdate}
+        onElementDelete={handleElementDelete}
+        onElementDuplicate={handleElementDuplicate}
+        onBringToFront={handleBringToFront}
+        onSendToBack={handleSendToBack}
+        onClearSelection={clearSelection}
+      />
+
+      {/* Tool Palette - top-center floating island */}
       <ToolPalette
         currentTool={state.tool}
         onToolChange={setTool}
         onGenerateDrawing={() => setIsGenerateModalOpen(true)}
-        onAIDiagram={() => setIsAIDiagramModalOpen(true)}
+        onAIDiagram={() => setIsGenerateModalOpen(true)}
         toolLocked={state.toolLocked}
         onToggleToolLock={toggleToolLock}
         isEmpty={state.elements.length === 0}
       />
-
-      {/* 
-      <StatusBar
-        elements={state.elements}
-        cursorPosition={cursorPosition}
-        isConnected={false}
-        lastSaved={lastSaved}
-        collaborativeUsers={[]}
-      /> */}
 
       {/* AI Diagram Modal */}
       <AIDiagramModal

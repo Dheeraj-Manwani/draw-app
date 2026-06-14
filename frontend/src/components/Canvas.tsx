@@ -2238,7 +2238,7 @@ export default function Canvas({
   }, [draw]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-white dark:bg-gray-900">
+    <div className="relative w-full h-full overflow-hidden bg-white dark:bg-[#121212]">
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 w-full h-full ${

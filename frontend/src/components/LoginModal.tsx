@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { SignIn } from "@clerk/clerk-react";
+// import { SignIn } from "@clerk/clerk-react";
 import {
   Dialog,
   DialogContent,
@@ -48,22 +48,13 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
           </div>
         </DialogHeader>
         <div className="mt-4">
-          <SignIn
-            appearance={{
-              elements: {
-                formButtonPrimary:
-                  "gradient-brand text-white hover:opacity-90 shadow-brand",
-                card: "shadow-none border-0",
-                headerTitle: "hidden",
-                headerSubtitle: "hidden",
-                socialButtonsBlockButton: "border border-border hover:bg-muted",
-                formFieldInput: "border-border focus:border-primary",
-                footerActionLink: "text-primary hover:text-primary/80",
-              },
-            }}
-            afterSignInUrl="/"
-            afterSignUpUrl="/"
-          />
+          {/* Clerk SignIn temporarily disabled */}
+          <Button
+            onClick={handleClose}
+            className="w-full gradient-brand text-white hover:opacity-90 shadow-brand"
+          >
+            Continue
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
