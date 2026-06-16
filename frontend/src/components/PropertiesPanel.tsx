@@ -29,6 +29,85 @@ import { useMemo, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
+// Small inline icons for the Edges / Fill-style controls so they visually match
+// the swatches in the reference design rather than relying on generic glyphs.
+const SharpEdgeIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none">
+    <path
+      d="M4 9V5a1 1 0 0 1 1-1h4"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const RoundEdgeIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none">
+    <path
+      d="M4 9V8a4 4 0 0 1 4-4h1"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const HachureIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4">
+    <defs>
+      <clipPath id="hachure-clip">
+        <rect x="3" y="3" width="14" height="14" rx="2" />
+      </clipPath>
+    </defs>
+    <rect
+      x="3.75"
+      y="3.75"
+      width="12.5"
+      height="12.5"
+      rx="2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+    />
+    <g clipPath="url(#hachure-clip)" stroke="currentColor" strokeWidth="1.25">
+      <path d="M-2 6 L8 -4 M-2 12 L14 -4 M-2 18 L20 -4 M4 18 L20 2 M10 18 L20 8" />
+    </g>
+  </svg>
+);
+
+const CrossHatchIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4">
+    <defs>
+      <clipPath id="crosshatch-clip">
+        <rect x="3" y="3" width="14" height="14" rx="2" />
+      </clipPath>
+    </defs>
+    <rect
+      x="3.75"
+      y="3.75"
+      width="12.5"
+      height="12.5"
+      rx="2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+    />
+    <g clipPath="url(#crosshatch-clip)" stroke="currentColor" strokeWidth="1">
+      {/* "/" diagonals */}
+      <path d="M3 11 L11 3 M3 17 L17 3 M9 17 L17 9" />
+      {/* "\" diagonals */}
+      <path d="M3 9 L11 17 M3 3 L17 17 M9 3 L17 11" />
+    </g>
+  </svg>
+);
+
+const SolidFillIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4">
+    <rect x="4" y="4" width="12" height="12" rx="2.5" fill="currentColor" />
+  </svg>
+);
+
 interface PropertiesPanelProps {
   selectedElements: CanvasElement[];
   onElementsUpdate: (
@@ -50,6 +129,8 @@ interface PropertiesPanelProps {
 type Capability =
   | "stroke"
   | "fill"
+  | "edges"
+  | "sloppiness"
   | "strokeWidth"
   | "strokeStyle"
   | "fontFamily"
@@ -60,11 +141,11 @@ type Capability =
   | "opacity";
 
 const ELEMENT_CAPS: Record<string, Capability[]> = {
-  rectangle: ["stroke", "fill", "strokeWidth", "strokeStyle", "opacity"],
-  ellipse: ["stroke", "fill", "strokeWidth", "strokeStyle", "opacity"],
-  diamond: ["stroke", "fill", "strokeWidth", "strokeStyle", "opacity"],
-  line: ["stroke", "strokeWidth", "strokeStyle", "opacity"],
-  arrow: ["stroke", "strokeWidth", "strokeStyle", "opacity"],
+  rectangle: ["stroke", "fill", "edges", "sloppiness", "strokeWidth", "strokeStyle", "opacity"],
+  ellipse: ["stroke", "fill", "sloppiness", "strokeWidth", "strokeStyle", "opacity"],
+  diamond: ["stroke", "fill", "edges", "sloppiness", "strokeWidth", "strokeStyle", "opacity"],
+  line: ["stroke", "sloppiness", "strokeWidth", "strokeStyle", "opacity"],
+  arrow: ["stroke", "sloppiness", "strokeWidth", "strokeStyle", "opacity"],
   freehand: ["stroke", "strokeWidth", "strokeStyle", "opacity"],
   text: [
     "stroke",
@@ -605,6 +686,94 @@ export default function PropertiesPanel({
                     <MoreHorizontal className="h-3 w-3 text-gray-600 dark:text-gray-300" />
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Fill style — only meaningful once a (non-transparent) fill is set */}
+            {has("fill") &&
+              selectedElement.fillColor &&
+              selectedElement.fillColor !== "transparent" && (
+                <div>
+                  <Label className={sectionLabel}>Fill</Label>
+                  <div className="flex items-center gap-1.5">
+                    {(
+                      [
+                        { value: "solid", label: "Solid", Icon: SolidFillIcon },
+                        { value: "hachure", label: "Hachure", Icon: HachureIcon },
+                        {
+                          value: "cross-hatch",
+                          label: "Cross-hatch",
+                          Icon: CrossHatchIcon,
+                        },
+                      ] as const
+                    ).map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() =>
+                          updateSelectedElements({ fillStyle: value })
+                        }
+                        className={pillClass(
+                          (selectedElement.fillStyle ?? "solid") === value
+                        )}
+                        title={label}
+                        data-testid={`fill-style-${value}`}
+                      >
+                        <Icon />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {/* Edges — sharp vs rounded corners */}
+            {has("edges") && (
+              <div>
+                <Label className={sectionLabel}>Edges</Label>
+                <div className="flex items-center gap-1.5">
+                  {(
+                    [
+                      { value: "sharp", label: "Sharp", Icon: SharpEdgeIcon },
+                      { value: "round", label: "Round", Icon: RoundEdgeIcon },
+                    ] as const
+                  ).map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      onClick={() => updateSelectedElements({ edges: value })}
+                      className={pillClass(
+                        (selectedElement.edges ?? "sharp") === value
+                      )}
+                      title={label}
+                      data-testid={`edges-${value}`}
+                    >
+                      <Icon />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sloppiness — hand-drawn (rough.js) outline vs precise. On by
+                default; toggling off renders crisp geometry. */}
+            {has("sloppiness") && (
+              <div>
+                <Label className={sectionLabel}>Sloppiness</Label>
+                <button
+                  onClick={() =>
+                    updateSelectedElements({
+                      roughness:
+                        (selectedElement.roughness ?? 1) > 0 ? 0 : 1,
+                    })
+                  }
+                  className={cn(
+                    pillClass((selectedElement.roughness ?? 1) > 0),
+                    "w-auto gap-1.5 px-2.5 text-xs font-medium"
+                  )}
+                  title="Hand-drawn look"
+                  data-testid="toggle-sloppiness"
+                >
+                  <Pencil className="h-4 w-4" />
+                  {(selectedElement.roughness ?? 1) > 0 ? "Sloppy" : "Precise"}
+                </button>
               </div>
             )}
 

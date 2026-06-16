@@ -74,6 +74,7 @@
     "react-rough-notation": "^1.0.8",
     "react-social-media-embed": "^2.5.18",
     "recharts": "^2.15.2",
+    "roughjs": "^4.6.6",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.2.5",

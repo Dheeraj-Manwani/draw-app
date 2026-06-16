@@ -3,11 +3,121 @@ import {
   type ExportOptions,
   type BackgroundType,
 } from "@/types/canvas";
-import { drawElement } from "./canvas-utils";
+import {
+  drawElement,
+  effectiveRoughness,
+  roughOptionsFor,
+  roundedRectPathD,
+} from "./canvas-utils";
 import {
   getThemeAwareStrokeColor,
   getThemeAwareFillColor,
 } from "@/utils/themeUtils";
+import rough from "roughjs";
+
+// A single generator shared across exports. It produces the same sketch as the
+// canvas because roughOptionsFor seeds each shape deterministically from its id.
+const roughGenerator = rough.generator();
+
+// Convert a rough "drawable" into SVG <path> markup matching the canvas sketch.
+function roughPathsToSVG(drawable: ReturnType<typeof roughGenerator.rectangle>) {
+  return roughGenerator
+    .toPaths(drawable)
+    .map(
+      (p) =>
+        `<path d="${p.d}" stroke="${p.stroke}" stroke-width="${p.strokeWidth}" fill="${
+          p.fill && p.fill !== "none" ? p.fill : "none"
+        }"/>`
+    )
+    .join("");
+}
+
+// Sketchy SVG for the rough-able shapes. Returns null when the element is drawn
+// precisely (roughness 0) so the caller falls back to the crisp SVG path.
+function roughElementToSVG(element: CanvasElement): string | null {
+  if (effectiveRoughness(element) <= 0) return null;
+
+  const x = Math.min(element.x, element.x + element.width);
+  const y = Math.min(element.y, element.y + element.height);
+  const w = Math.abs(element.width);
+  const h = Math.abs(element.height);
+  const drawables: Array<ReturnType<typeof roughGenerator.rectangle>> = [];
+
+  switch (element.type) {
+    case "rectangle": {
+      const options = roughOptionsFor(element);
+      if (element.edges === "round") {
+        const r = Math.min(Math.min(w, h) * 0.18, 32);
+        drawables.push(roughGenerator.path(roundedRectPathD(x, y, w, h, r), options));
+      } else {
+        drawables.push(roughGenerator.rectangle(x, y, w, h, options));
+      }
+      break;
+    }
+    case "ellipse":
+      drawables.push(
+        roughGenerator.ellipse(x + w / 2, y + h / 2, w, h, roughOptionsFor(element))
+      );
+      break;
+    case "diamond": {
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      drawables.push(
+        roughGenerator.polygon(
+          [
+            [cx, y],
+            [x + w, cy],
+            [cx, y + h],
+            [x, cy],
+          ],
+          roughOptionsFor(element)
+        )
+      );
+      break;
+    }
+    case "line": {
+      const ex = element.x + element.width;
+      const ey = element.y + element.height;
+      drawables.push(
+        roughGenerator.line(element.x, element.y, ex, ey, roughOptionsFor(element, { fill: false }))
+      );
+      break;
+    }
+    case "arrow": {
+      const sx = element.x;
+      const sy = element.y;
+      const ex = element.x + element.width;
+      const ey = element.y + element.height;
+      const headlen = Math.max(12, (element.strokeWidth || 2) * 5);
+      const a = Math.atan2(ey - sy, ex - sx);
+      const options = roughOptionsFor(element, { fill: false });
+      drawables.push(roughGenerator.line(sx, sy, ex, ey, options));
+      drawables.push(
+        roughGenerator.line(
+          ex,
+          ey,
+          ex - headlen * Math.cos(a - Math.PI / 6),
+          ey - headlen * Math.sin(a - Math.PI / 6),
+          options
+        )
+      );
+      drawables.push(
+        roughGenerator.line(
+          ex,
+          ey,
+          ex - headlen * Math.cos(a + Math.PI / 6),
+          ey - headlen * Math.sin(a + Math.PI / 6),
+          options
+        )
+      );
+      break;
+    }
+    default:
+      return null;
+  }
+
+  return `<g opacity="${element.opacity}">${drawables.map(roughPathsToSVG).join("")}</g>`;
+}
 
 function drawBackgroundPattern(
   ctx: CanvasRenderingContext2D,
@@ -268,6 +378,10 @@ function getElementsBounds(elements: CanvasElement[]) {
 }
 
 function elementToSVG(element: CanvasElement): string {
+  // Hand-drawn shapes emit sketchy rough.js paths matching the canvas.
+  const sketch = roughElementToSVG(element);
+  if (sketch) return sketch;
+
   const style = `stroke="${element.strokeColor}" fill="${element.fillColor}" stroke-width="${element.strokeWidth}" opacity="${element.opacity}"`;
   const dashArray =
     element.strokeStyle === "dashed"
@@ -277,8 +391,14 @@ function elementToSVG(element: CanvasElement): string {
       : "";
 
   switch (element.type) {
-    case "rectangle":
-      return `<rect x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}" ${style} ${dashArray}/>`;
+    case "rectangle": {
+      const rx =
+        element.edges === "round"
+          ? Math.min(Math.min(element.width, element.height) * 0.18, 32)
+          : 0;
+      const radius = rx > 0 ? `rx="${rx}" ry="${rx}"` : "";
+      return `<rect x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}" ${radius} ${style} ${dashArray}/>`;
+    }
 
     case "ellipse":
       const cx = element.x + element.width / 2;

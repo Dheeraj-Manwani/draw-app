@@ -26,6 +26,15 @@ export interface CanvasElement {
   fillColor: string;
   strokeWidth: number;
   strokeStyle: "solid" | "dashed" | "dotted";
+  // Corner style for shapes with corners (rectangle, diamond). Defaults to "sharp".
+  edges?: "sharp" | "round";
+  // How a shape's background is painted when a fill color is set. Defaults to
+  // "solid"; hachure/cross-hatch draw the fill as line patterns (Excalidraw-style).
+  fillStyle?: "hachure" | "cross-hatch" | "solid";
+  // Hand-drawn "sloppiness" rendered via rough.js. 0 = clean/precise; any value
+  // > 0 sketches the outline. Defaults to 1 (sloppy) when undefined, so shapes
+  // look hand-drawn out of the box.
+  roughness?: number;
   opacity: number;
   locked: boolean;
   zIndex: number;

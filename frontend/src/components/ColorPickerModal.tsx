@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
 
 interface ColorPickerModalProps {
   isOpen: boolean;
@@ -25,6 +26,12 @@ const transparentStyle = {
   backgroundPosition: "0 0,0 4px,4px -4px,-4px 0",
 };
 
+const isValidHex = (value: string) => /^#?[0-9a-fA-F]{6}$/.test(value.trim());
+const normalizeHex = (value: string) => {
+  const v = value.trim();
+  return (v.startsWith("#") ? v : `#${v}`).toLowerCase();
+};
+
 export default function ColorPickerModal({
   isOpen,
   onClose,
@@ -33,6 +40,24 @@ export default function ColorPickerModal({
   title,
   colors,
 }: ColorPickerModalProps) {
+  // Local draft for the hex field so the user can type freely; we only commit
+  // (and recolor) once the value is a valid 6-digit hex.
+  const [hexDraft, setHexDraft] = useState(selectedColor);
+
+  useEffect(() => {
+    setHexDraft(selectedColor);
+  }, [selectedColor, isOpen]);
+
+  const commitHex = () => {
+    if (isValidHex(hexDraft)) {
+      onColorSelect(normalizeHex(hexDraft));
+    } else {
+      setHexDraft(selectedColor);
+    }
+  };
+
+  const isTransparentSelected = selectedColor === "transparent";
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md rounded-2xl border border-gray-200 bg-white p-4 text-black shadow-[0_2px_14px_rgba(0,0,0,0.18)] dark:border-[#33333d] dark:bg-[#232329] dark:text-white">
@@ -48,6 +73,34 @@ export default function ColorPickerModal({
             <X className="h-4 w-4" />
           </button>
         </DialogHeader>
+
+        {/* Current color preview + hex entry */}
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 dark:border-[#3a3a44] dark:bg-[#2b2b33]">
+          <span
+            className="h-8 w-8 shrink-0 rounded-lg border border-gray-300 dark:border-[#3a3a44]"
+            style={
+              isTransparentSelected
+                ? transparentStyle
+                : { backgroundColor: selectedColor }
+            }
+          />
+          <div className="flex flex-1 items-center rounded-lg bg-white px-2 dark:bg-[#232329]">
+            <span className="text-sm text-gray-400 dark:text-[#7a7a86]">#</span>
+            <input
+              type="text"
+              value={hexDraft.replace(/^#/, "")}
+              onChange={(e) => setHexDraft(e.target.value)}
+              onBlur={commitHex}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitHex();
+              }}
+              placeholder="hex"
+              spellCheck={false}
+              className="w-full bg-transparent py-1.5 text-sm font-medium uppercase text-black outline-none placeholder:normal-case placeholder:text-gray-400 dark:text-white dark:placeholder:text-[#7a7a86]"
+              data-testid="color-hex-input"
+            />
+          </div>
+        </div>
 
         <div className="max-h-[60vh] overflow-y-auto pr-0.5">
           <div className="grid grid-cols-9 gap-2 p-0.5">
