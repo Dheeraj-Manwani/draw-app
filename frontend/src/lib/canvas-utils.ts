@@ -12,13 +12,16 @@ export function drawElement(
   ctx.fillStyle = element.fillColor;
   ctx.lineWidth = element.strokeWidth;
 
-  // Set line dash pattern
+  // Set line dash pattern, scaled to the stroke width so dashes/dots stay
+  // visually proportional instead of being fixed (and overly tight when thin).
+  const sw = element.strokeWidth || 1;
   switch (element.strokeStyle) {
     case "dashed":
-      ctx.setLineDash([10, 5]);
+      ctx.setLineDash([sw * 4, sw * 2]);
       break;
     case "dotted":
-      ctx.setLineDash([2, 3]);
+      ctx.setLineDash([sw, sw * 2]);
+      ctx.lineCap = "round"; // render dots as round rather than square
       break;
     default:
       ctx.setLineDash([]);
@@ -54,9 +57,6 @@ export function drawElement(
       break;
     case "diamond":
       drawDiamond(ctx, element);
-      break;
-    case "eraser":
-      drawEraser(ctx, element);
       break;
     case "image":
       drawImage(ctx, element);
@@ -113,8 +113,9 @@ function drawArrow(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   ctx.lineTo(endX, endY);
   ctx.stroke();
 
-  // Draw arrowhead
-  const headlen = 15;
+  // Draw arrowhead — scale with stroke width so thick arrows get proportional
+  // heads instead of a tiny fixed one.
+  const headlen = Math.max(12, (element.strokeWidth || 2) * 5);
   const angle = Math.atan2(endY - startY, endX - startX);
 
   ctx.beginPath();
@@ -145,11 +146,53 @@ function drawFreehand(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   ctx.stroke();
 }
 
-function drawText(ctx: CanvasRenderingContext2D, element: CanvasElement) {
-  const fontSize = element.data?.fontSize || 16;
-  const fontFamily = element.data?.fontFamily || "Inter, sans-serif";
+// Resolve the effective font settings for a text element. Font size/weight are
+// stored as top-level element fields (what the Properties panel edits), with a
+// fallback to the legacy data.fontSize for older drawings.
+export function getTextFont(element: CanvasElement): {
+  fontSize: number;
+  fontWeight: "normal" | "bold";
+  fontFamily: string;
+} {
+  return {
+    fontSize: element.fontSize ?? element.data?.fontSize ?? 16,
+    fontWeight: element.fontWeight ?? "normal",
+    fontFamily: element.data?.fontFamily ?? "Inter, sans-serif",
+  };
+}
 
-  ctx.font = `${fontSize}px ${fontFamily}`;
+// Measure the box a piece of text occupies. Shared by drawing, hit-box sizing,
+// and the Properties panel so they never disagree.
+let measureCtx: CanvasRenderingContext2D | null = null;
+export function measureTextSize(
+  text: string,
+  fontSize: number,
+  fontWeight: "normal" | "bold" = "normal",
+  fontFamily = "Inter, sans-serif"
+): { width: number; height: number } {
+  if (!measureCtx) {
+    measureCtx = document.createElement("canvas").getContext("2d");
+  }
+  const lines = (text || "").split("\n");
+  const lineHeight = fontSize * 1.2;
+  let maxWidth = 0;
+  if (measureCtx) {
+    measureCtx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    lines.forEach((line) => {
+      maxWidth = Math.max(maxWidth, measureCtx!.measureText(line).width);
+    });
+  }
+  const padding = 10;
+  return {
+    width: Math.max(maxWidth + padding, 20),
+    height: Math.max(lines.length * lineHeight + padding, fontSize + padding),
+  };
+}
+
+function drawText(ctx: CanvasRenderingContext2D, element: CanvasElement) {
+  const { fontSize, fontWeight, fontFamily } = getTextFont(element);
+
+  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
   ctx.fillStyle = element.strokeColor;
   ctx.textBaseline = "top";
 
@@ -157,22 +200,16 @@ function drawText(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   const lines = text.split("\n");
   const lineHeight = fontSize * 1.2; // Add some line spacing
 
-  // Calculate the maximum width and total height
-  let maxWidth = 0;
-  lines.forEach((line: string) => {
-    const lineWidth = ctx.measureText(line).width;
-    maxWidth = Math.max(maxWidth, lineWidth);
-  });
-
-  // Always update element dimensions to match the actual text content
+  // measureTextSize adds `padding` to the box; mirror it here as a half-padding
+  // inset on the top/left so the glyphs sit consistently inside their box
+  // rather than flush against the top-left corner.
   const padding = 10;
-  element.width = Math.max(maxWidth, 0); // Minimum width of 200
-  element.height = Math.max(lines.length * lineHeight + padding, 50); // Minimum height of 50
 
-  // Draw each line
+  // Draw each line. Dimensions are owned by the element (set on submit/edit and
+  // when font properties change) — we no longer mutate the element here.
   lines.forEach((line: string, index: number) => {
-    const y = element.y + index * lineHeight;
-    ctx.fillText(line, element.x, y);
+    const y = element.y + padding / 2 + index * lineHeight;
+    ctx.fillText(line, element.x + padding / 2, y);
   });
 }
 
@@ -191,29 +228,6 @@ function drawDiamond(ctx: CanvasRenderingContext2D, element: CanvasElement) {
     ctx.fill();
   }
   ctx.stroke();
-}
-
-function drawEraser(ctx: CanvasRenderingContext2D, element: CanvasElement) {
-  // Eraser doesn't draw anything visible, it just erases
-  // The erasing logic is handled in the canvas component
-  if (!element.data?.points || element.data.points.length < 2) return;
-
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.lineWidth = element.strokeWidth || 20;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  ctx.beginPath();
-  const points = element.data.points as Point[];
-  ctx.moveTo(points[0].x, points[0].y);
-
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
-  }
-
-  ctx.stroke();
-  ctx.restore();
 }
 
 export function drawGrid(
@@ -286,19 +300,24 @@ export function getElementBounds(element: CanvasElement) {
   };
 }
 
+// Decoded images live in a module-level cache keyed by element id, NOT on the
+// element object. draw() builds a fresh shallow copy of every element each
+// frame, so caching on the element would be lost every frame — creating a new
+// Image() and firing onImageLoad on every render (an infinite redraw loop).
+const imageElementCache = new Map<string, HTMLImageElement>();
+
 function drawImage(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   if (!element.imageData) return;
 
-  // Use cached image if available, otherwise create and cache it
-  if (!element.cachedImage) {
+  const cached = imageElementCache.get(element.id);
+
+  // Not loaded yet: kick off a one-time load and draw a placeholder.
+  if (!cached) {
     const img = new Image();
+    imageElementCache.set(element.id, img);
     img.onload = () => {
-      element.cachedImage = img;
-      // Only trigger redraw once when image first loads
-      if (element.onImageLoad && !element.imageLoaded) {
-        element.imageLoaded = true;
-        element.onImageLoad();
-      }
+      // Fires exactly once per element — trigger a single redraw.
+      element.onImageLoad?.();
     };
     img.onerror = (error) => {
       console.error("Error loading image for element:", element.id, error);
@@ -327,10 +346,19 @@ function drawImage(ctx: CanvasRenderingContext2D, element: CanvasElement) {
     return;
   }
 
+  // Still decoding (cache entry exists but not complete) — keep the placeholder.
+  if (!cached.complete || cached.naturalWidth === 0) {
+    ctx.save();
+    ctx.fillStyle = "#f3f4f6";
+    ctx.fillRect(element.x, element.y, element.width, element.height);
+    ctx.restore();
+    return;
+  }
+
   // Draw the cached image
   try {
     ctx.drawImage(
-      element.cachedImage,
+      cached,
       element.x,
       element.y,
       element.width,

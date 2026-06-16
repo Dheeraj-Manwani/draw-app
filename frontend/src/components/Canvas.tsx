@@ -1,13 +1,24 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { type CanvasElement, type Point } from "@/types/canvas";
-import { drawElement, drawGrid, screenToCanvas } from "@/lib/canvas-utils";
+import {
+  drawElement,
+  drawGrid,
+  screenToCanvas,
+  measureTextSize,
+  getTextFont,
+} from "@/lib/canvas-utils";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   getThemeBackgroundColor,
   getThemeAwareStrokeColor,
   getThemeAwareFillColor,
-  getInitialStrokeColor,
 } from "@/utils/themeUtils";
+
+// New elements store a single canonical (theme-neutral) stroke color. The
+// theme-aware remap at draw time handles showing it light-on-dark, so the
+// stored value no longer depends on which theme was active at creation (which
+// previously surprised on export).
+const DEFAULT_STROKE_COLOR = "#000000";
 import ScrollToContentButton from "./ScrollToContentButton";
 import ImageUploadModal from "./ImageUploadModal";
 import EmbedLinkModal from "./EmbedLinkModal";
@@ -37,9 +48,13 @@ interface CanvasProps {
   toolLocked: boolean;
   onElementCreate: (element: CanvasElement, onAdded?: () => void) => void;
   onElementUpdate: (id: string, updates: Partial<CanvasElement>) => void;
+  onElementsUpdateLive: (
+    updatesById: Record<string, Partial<CanvasElement>>
+  ) => void;
+  onCommitHistory: () => void;
   onElementSelect: (id: string, multiSelect?: boolean) => void;
   onSelectMultipleElements: (ids: string[], addToSelection?: boolean) => void;
-  onElementDelete: (id: string) => void;
+  onElementsDelete: (ids: string[]) => void;
   onClearSelection: () => void;
   onPanChange: (panX: number, panY: number) => void;
   onZoomChange: (zoom: number) => void;
@@ -69,9 +84,11 @@ export default function Canvas({
   toolLocked,
   onElementCreate,
   onElementUpdate,
+  onElementsUpdateLive,
+  onCommitHistory,
   onElementSelect,
   onSelectMultipleElements,
-  onElementDelete,
+  onElementsDelete,
   onClearSelection,
   onPanChange,
   onZoomChange,
@@ -128,7 +145,10 @@ export default function Canvas({
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [moveStart, setMoveStart] = useState<Point | null>(null);
   const [originalElementPositions, setOriginalElementPositions] = useState<
-    Map<string, { x: number; y: number; points?: Point[] }>
+    Map<
+      string,
+      { x: number; y: number; width: number; height: number; points?: Point[] }
+    >
   >(new Map());
   const [cursorState, setCursorState] = useState<string>("default");
   const [laserElements, setLaserElements] = useState<CanvasElement[]>([]);
@@ -142,6 +162,46 @@ export default function Canvas({
     endX: number;
     endY: number;
   } | null>(null);
+
+  // Elements ordered for stacking. Lower zIndex is drawn first (behind); hit
+  // testing walks this in reverse so the topmost element wins. Used everywhere
+  // we care about visual stacking so layer ordering actually takes effect.
+  const sortedElements = useMemo(
+    () => [...elements].sort((a, b) => a.zIndex - b.zIndex),
+    [elements]
+  );
+
+  // Axis-aligned bounds of an element in canvas coordinates, normalized so
+  // negative width/height (lines/arrows) and point-based paths both work.
+  const getElementCanvasBounds = useCallback((element: CanvasElement) => {
+    if (
+      element.type === "freehand" ||
+      element.type === "eraser" ||
+      element.type === "laser"
+    ) {
+      const points = (element.data?.points as Point[]) || [];
+      if (points.length === 0) {
+        return { x: element.x, y: element.y, width: 0, height: 0 };
+      }
+      let minX = points[0].x;
+      let maxX = points[0].x;
+      let minY = points[0].y;
+      let maxY = points[0].y;
+      for (const p of points) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+    return {
+      x: Math.min(element.x, element.x + element.width),
+      y: Math.min(element.y, element.y + element.height),
+      width: Math.abs(element.width),
+      height: Math.abs(element.height),
+    };
+  }, []);
 
   // Function to determine cursor state
   const getCursorState = useCallback(() => {
@@ -260,29 +320,14 @@ export default function Canvas({
 
   const handleEmbedSubmit = useCallback(
     (url: string) => {
-      console.log("Canvas: handleEmbedSubmit called with URL:", url);
-
       // Get the center of the canvas
       const canvas = canvasRef.current;
-      if (!canvas) {
-        console.log("Canvas: No canvas ref found");
-        return;
-      }
+      if (!canvas) return;
 
       const canvasWidth = canvas.width / zoom;
       const canvasHeight = canvas.height / zoom;
       const centerX = (-panX + canvasWidth / 2) / zoom;
       const centerY = (-panY + canvasHeight / 2) / zoom;
-
-      console.log("Canvas: Center position:", {
-        centerX,
-        centerY,
-        canvasWidth,
-        canvasHeight,
-        zoom,
-        panX,
-        panY,
-      });
 
       // Determine embed type from URL
       let embedType = "unknown";
@@ -330,7 +375,6 @@ export default function Canvas({
         embedType,
       };
 
-      console.log("Canvas: Creating embed element:", newElement);
       onElementCreate(newElement);
     },
     [zoom, panX, panY, elements.length, onElementCreate]
@@ -417,6 +461,8 @@ export default function Canvas({
       if (
         tool === "select" &&
         hoveredElement &&
+        // Text elements show no border/box — they're edited directly.
+        hoveredElement.type !== "text" &&
         !selectedElementIds.includes(hoveredElement.id)
       ) {
         let x, y, width, height;
@@ -620,8 +666,13 @@ export default function Canvas({
     ctx.scale(zoom, zoom);
     ctx.translate(panX / zoom, panY / zoom);
 
-    // Draw all elements with theme-aware colors
-    elements.forEach((element) => {
+    // Draw all elements with theme-aware colors, in stacking order. Skip any
+    // element currently marked for erasing so it visibly disappears mid-stroke.
+    sortedElements.forEach((element) => {
+      if (isErasing && erasedElements.has(element.id)) return;
+      // While editing a text element, the live <textarea> shows its content —
+      // skip the canvas copy so the text isn't rendered twice (offset/distorted).
+      if (textInput?.isEditing && textInput.element.id === element.id) return;
       const themeAwareElement = {
         ...element,
         strokeColor: getThemeAwareStrokeColor(element.strokeColor, theme),
@@ -704,6 +755,7 @@ export default function Canvas({
     drawCollaborativeCursors(ctx);
   }, [
     elements,
+    sortedElements,
     currentElement,
     selectedElementIds,
     zoom,
@@ -713,7 +765,9 @@ export default function Canvas({
     tool,
     hoveredElement,
     isErasing,
+    erasedElements,
     eraserStroke,
+    textInput,
     drawBackground,
     theme,
     laserElements,
@@ -733,6 +787,10 @@ export default function Canvas({
       );
 
       selectedElements.forEach((element) => {
+        // Text elements show no selection rectangle or resize handles — the
+        // only affordance is double-clicking to edit them in place.
+        if (element.type === "text") return;
+
         let x, y, width, height;
 
         if (
@@ -885,7 +943,16 @@ export default function Canvas({
 
   const drawEraserHoverPreview = useCallback(
     (ctx: CanvasRenderingContext2D) => {
-      if (tool === "eraser" && hoveredElement) {
+      // Skip the red box + "X" for path-based strokes (freehand/eraser/laser):
+      // their x/y/width/height are 0 so the box would be wrong, and the cross
+      // over a thin stroke just looks noisy.
+      if (
+        tool === "eraser" &&
+        hoveredElement &&
+        hoveredElement.type !== "freehand" &&
+        hoveredElement.type !== "eraser" &&
+        hoveredElement.type !== "laser"
+      ) {
         const x = hoveredElement.x * zoom + panX;
         const y = hoveredElement.y * zoom + panY;
         const width = hoveredElement.width * zoom;
@@ -1016,11 +1083,15 @@ export default function Canvas({
           elementWidth = (maxX - minX) * zoom;
           elementHeight = (maxY - minY) * zoom;
         } else {
-          // For other elements, use element bounds
-          elementX = element.x * zoom + panX;
-          elementY = element.y * zoom + panY;
-          elementWidth = element.width * zoom;
-          elementHeight = element.height * zoom;
+          // For other elements, use element bounds. Normalize so lines/arrows
+          // with negative width/height (drawn right-to-left or upward) still get
+          // a valid box and can be marquee-selected.
+          const left = Math.min(element.x, element.x + element.width);
+          const top = Math.min(element.y, element.y + element.height);
+          elementX = left * zoom + panX;
+          elementY = top * zoom + panY;
+          elementWidth = Math.abs(element.width) * zoom;
+          elementHeight = Math.abs(element.height) * zoom;
         }
 
         // Check if element intersects with selection rectangle
@@ -1055,6 +1126,45 @@ export default function Canvas({
           setIsResizing(true);
           setResizeHandle(handle);
           setDragStart(canvasPos);
+          // Snapshot the original geometry of every selected element so the
+          // resize can be computed from an absolute start (stable scaling for
+          // path elements, single undo entry on release).
+          const snapshot = new Map<
+            string,
+            {
+              x: number;
+              y: number;
+              width: number;
+              height: number;
+              points?: Point[];
+            }
+          >();
+          selectedElementIds.forEach((id) => {
+            const el = elements.find((e) => e.id === id);
+            if (!el) return;
+            const isPath =
+              el.type === "freehand" ||
+              el.type === "eraser" ||
+              el.type === "laser";
+            if (isPath) {
+              const b = getElementCanvasBounds(el);
+              snapshot.set(id, {
+                x: b.x,
+                y: b.y,
+                width: b.width,
+                height: b.height,
+                points: el.data?.points ? [...el.data.points] : [],
+              });
+            } else {
+              snapshot.set(id, {
+                x: el.x,
+                y: el.y,
+                width: el.width,
+                height: el.height,
+              });
+            }
+          });
+          setOriginalElementPositions(snapshot);
           // Set appropriate resize cursor
           switch (handle) {
             case "nw":
@@ -1083,7 +1193,15 @@ export default function Canvas({
         const clickedElement = getElementAtPoint(canvasPos);
 
         if (clickedElement) {
-          onElementSelect(clickedElement.id, e.shiftKey);
+          // Shift-click toggles membership. A plain click on an element that is
+          // already part of the selection keeps the whole selection so a
+          // multi-selection can be dragged as a group; clicking a different
+          // element replaces the selection with just that one.
+          if (e.shiftKey) {
+            onElementSelect(clickedElement.id, true);
+          } else if (!selectedElementIds.includes(clickedElement.id)) {
+            onElementSelect(clickedElement.id, false);
+          }
           setIsMoving(true);
           setMoveStart(canvasPos);
           setCursorState("move");
@@ -1107,17 +1225,16 @@ export default function Canvas({
         setDragStart(mousePos);
         setCursorState("grabbing");
       } else if (tool === "eraser") {
-        // Handle eraser tool - start erasing mode
+        // Handle eraser tool - start erasing mode. Elements touched by the
+        // stroke are marked (and hidden from the render) and deleted in a
+        // single batch on mouse up, so a whole erase pass is one undo step.
         setIsErasing(true);
-        setErasedElements(new Set());
         setEraserStroke([canvasPos]);
 
-        // Erase element at click point
         const clickedElement = getElementAtPoint(canvasPos);
-        if (clickedElement) {
-          setErasedElements((prev) => new Set([...prev, clickedElement.id]));
-          onElementDelete(clickedElement.id);
-        }
+        setErasedElements(
+          clickedElement ? new Set([clickedElement.id]) : new Set()
+        );
       } else if (tool === "text") {
         // Handle text tool - create text input
         const newElement: CanvasElement = {
@@ -1128,14 +1245,16 @@ export default function Canvas({
           width: 200,
           height: 50, // Increased height to better accommodate multi-line text
           angle: 0,
-          strokeColor: getInitialStrokeColor(theme),
+          strokeColor: DEFAULT_STROKE_COLOR,
           fillColor: "transparent",
           strokeWidth: 2,
           strokeStyle: "solid",
           opacity: 1,
           locked: false,
           zIndex: elements.length,
-          data: { text: "", fontSize: 16, fontFamily: "Inter, sans-serif" },
+          fontSize: 16,
+          fontWeight: "normal",
+          data: { text: "", fontFamily: "Inter, sans-serif" },
         };
 
         setTextInput({
@@ -1166,17 +1285,14 @@ export default function Canvas({
           width: 0,
           height: 0,
           angle: 0,
-          strokeColor: getInitialStrokeColor(theme),
+          strokeColor: DEFAULT_STROKE_COLOR,
           fillColor: "transparent",
-          strokeWidth: tool === "eraser" ? 20 : 2,
+          strokeWidth: 2,
           strokeStyle: "solid",
           opacity: 1,
           locked: false,
           zIndex: elements.length,
-          data:
-            tool === "freehand" || tool === "eraser"
-              ? { points: [canvasPos] }
-              : undefined,
+          data: tool === "freehand" ? { points: [canvasPos] } : undefined,
         };
 
         setCurrentElement(newElement);
@@ -1188,7 +1304,9 @@ export default function Canvas({
       zoom,
       panX,
       panY,
-      elements.length,
+      elements,
+      selectedElementIds,
+      getElementCanvasBounds,
       onElementSelect,
       onClearSelection,
       theme,
@@ -1231,7 +1349,9 @@ export default function Canvas({
               ) {
                 // For path-based elements, check if eraser stroke intersects with any path points
                 const points = element.data?.points || [];
-                const eraserRadius = 15; // Eraser radius in pixels
+                // ~15 screen px, converted to canvas units so the felt radius
+                // stays constant regardless of zoom.
+                const eraserRadius = 15 / zoom;
 
                 for (const pathPoint of points) {
                   for (const eraserPoint of newStroke) {
@@ -1252,7 +1372,7 @@ export default function Canvas({
                 const startY = element.y;
                 const endX = element.x + element.width;
                 const endY = element.y + element.height;
-                const eraserRadius = 15;
+                const eraserRadius = 15 / zoom;
 
                 for (const eraserPoint of newStroke) {
                   const distance = distanceToLine(
@@ -1270,7 +1390,7 @@ export default function Canvas({
                 }
               } else {
                 // For other elements, check if eraser stroke intersects with rectangular bounds
-                const eraserRadius = 15;
+                const eraserRadius = 15 / zoom;
                 for (const eraserPoint of newStroke) {
                   if (
                     eraserPoint.x >= element.x - eraserRadius &&
@@ -1285,8 +1405,8 @@ export default function Canvas({
               }
 
               if (intersects) {
+                // Mark for deletion; actual removal is batched on mouse up.
                 setErasedElements((prev) => new Set([...prev, element.id]));
-                onElementDelete(element.id);
               }
             }
           });
@@ -1359,164 +1479,171 @@ export default function Canvas({
         onPanChange(panX + deltaX, panY + deltaY);
         setDragStart(mousePos);
       } else if (isMoving && moveStart) {
-        // Store original positions on first move
-        if (originalElementPositions.size === 0) {
-          const positions = new Map<
-            string,
-            { x: number; y: number; points?: Point[] }
-          >();
+        // Snapshot the original geometry on the first move frame, and use that
+        // same snapshot immediately so there's no one-frame lag.
+        let positions = originalElementPositions;
+        if (positions.size === 0) {
+          positions = new Map();
           selectedElementIds.forEach((id) => {
             const element = elements.find((el) => el.id === id);
-            if (element) {
-              if (
-                element.type === "freehand" ||
-                element.type === "eraser" ||
-                element.type === "laser"
-              ) {
-                // For path-based elements, store the original points
-                positions.set(id, {
-                  x: element.x,
-                  y: element.y,
-                  points: element.data?.points ? [...element.data.points] : [],
-                });
-              } else {
-                // For other elements, store x and y
-                positions.set(id, { x: element.x, y: element.y });
-              }
-            }
+            if (!element) return;
+            const isPath =
+              element.type === "freehand" ||
+              element.type === "eraser" ||
+              element.type === "laser";
+            positions.set(id, {
+              x: element.x,
+              y: element.y,
+              width: element.width,
+              height: element.height,
+              points:
+                isPath && element.data?.points
+                  ? [...element.data.points]
+                  : undefined,
+            });
           });
           setOriginalElementPositions(positions);
         }
 
-        // Move selected elements
-        const deltaX = (canvasPos.x - moveStart.x) / zoom;
-        const deltaY = (canvasPos.y - moveStart.y) / zoom;
+        // canvasPos and moveStart are both already in canvas units (screenToCanvas
+        // divided by zoom), so the delta is the final canvas-space delta — do NOT
+        // divide by zoom again.
+        const deltaX = canvasPos.x - moveStart.x;
+        const deltaY = canvasPos.y - moveStart.y;
 
+        // Build one batched update so every selected element moves together
+        // (looping single updates dropped all but the last element).
+        const updates: Record<string, Partial<CanvasElement>> = {};
         selectedElementIds.forEach((id) => {
-          const originalPos = originalElementPositions.get(id);
-          if (originalPos) {
-            const element = elements.find((el) => el.id === id);
-            if (element) {
-              if (
-                element.type === "freehand" ||
-                element.type === "eraser" ||
-                element.type === "laser"
-              ) {
-                // For path-based elements, update all points using original points
-                const originalPoints = originalPos.points || [];
-                const updatedPoints = originalPoints.map((point: Point) => ({
+          const originalPos = positions.get(id);
+          if (!originalPos) return;
+          const element = elements.find((el) => el.id === id);
+          if (!element) return;
+
+          const isPath =
+            element.type === "freehand" ||
+            element.type === "eraser" ||
+            element.type === "laser";
+          if (isPath) {
+            const originalPoints = originalPos.points || [];
+            updates[id] = {
+              data: {
+                ...element.data,
+                points: originalPoints.map((point: Point) => ({
                   x: point.x + deltaX,
                   y: point.y + deltaY,
-                }));
-
-                onElementUpdate(id, {
-                  data: {
-                    ...element.data,
-                    points: updatedPoints,
-                  },
-                });
-              } else {
-                // For other elements, update x and y properties
-                onElementUpdate(id, {
-                  x: originalPos.x + deltaX,
-                  y: originalPos.y + deltaY,
-                });
-              }
-            }
+                })),
+              },
+            };
+          } else {
+            updates[id] = {
+              x: originalPos.x + deltaX,
+              y: originalPos.y + deltaY,
+            };
           }
         });
+        if (Object.keys(updates).length > 0) onElementsUpdateLive(updates);
       } else if (isResizing && dragStart && resizeHandle) {
-        // Resize selected elements
-        const deltaX = (canvasPos.x - dragStart.x) / zoom;
-        const deltaY = (canvasPos.y - dragStart.y) / zoom;
+        // Absolute resize from the snapshot captured on mouse down. dragStart is
+        // already in canvas units, so the delta is final — no extra /zoom.
+        const deltaX = canvasPos.x - dragStart.x;
+        const deltaY = canvasPos.y - dragStart.y;
 
+        const updates: Record<string, Partial<CanvasElement>> = {};
         selectedElementIds.forEach((id) => {
           const element = elements.find((el) => el.id === id);
-          if (element) {
-            // Handle special start/end resize for arrows and lines
-            if (
-              (element.type === "arrow" || element.type === "line") &&
-              (resizeHandle === "start" || resizeHandle === "end")
-            ) {
-              const currentStartX = element.x;
-              const currentStartY = element.y;
-              const currentEndX = element.x + element.width;
-              const currentEndY = element.y + element.height;
+          const orig = originalElementPositions.get(id);
+          if (!element || !orig) return;
 
-              let newStartX = currentStartX;
-              let newStartY = currentStartY;
-              let newEndX = currentEndX;
-              let newEndY = currentEndY;
+          const isPath =
+            element.type === "freehand" ||
+            element.type === "eraser" ||
+            element.type === "laser";
 
-              if (resizeHandle === "start") {
-                newStartX += deltaX;
-                newStartY += deltaY;
-              } else if (resizeHandle === "end") {
-                newEndX += deltaX;
-                newEndY += deltaY;
-              }
-
-              // Update element with new start/end coordinates
-              onElementUpdate(id, {
-                x: newStartX,
-                y: newStartY,
-                width: newEndX - newStartX,
-                height: newEndY - newStartY,
-              });
+          // Arrows/lines: drag the start or end endpoint directly.
+          if (
+            (element.type === "arrow" || element.type === "line") &&
+            (resizeHandle === "start" || resizeHandle === "end")
+          ) {
+            if (resizeHandle === "start") {
+              updates[id] = {
+                x: orig.x + deltaX,
+                y: orig.y + deltaY,
+                width: orig.width - deltaX,
+                height: orig.height - deltaY,
+              };
             } else {
-              // Standard resize handling for other elements
-              let newX = element.x;
-              let newY = element.y;
-              let newWidth = element.width;
-              let newHeight = element.height;
-
-              switch (resizeHandle) {
-                case "nw":
-                  newX += deltaX;
-                  newY += deltaY;
-                  newWidth -= deltaX;
-                  newHeight -= deltaY;
-                  break;
-                case "n":
-                  newY += deltaY;
-                  newHeight -= deltaY;
-                  break;
-                case "ne":
-                  newY += deltaY;
-                  newWidth += deltaX;
-                  newHeight -= deltaY;
-                  break;
-                case "e":
-                  newWidth += deltaX;
-                  break;
-                case "se":
-                  newWidth += deltaX;
-                  newHeight += deltaY;
-                  break;
-                case "s":
-                  newHeight += deltaY;
-                  break;
-                case "sw":
-                  newX += deltaX;
-                  newWidth -= deltaX;
-                  newHeight += deltaY;
-                  break;
-                case "w":
-                  newX += deltaX;
-                  newWidth -= deltaX;
-                  break;
-              }
-
-              onElementUpdate(id, {
-                x: Math.max(0, newX),
-                y: Math.max(0, newY),
-                width: Math.max(10, newWidth),
-                height: Math.max(10, newHeight),
-              });
+              updates[id] = {
+                width: orig.width + deltaX,
+                height: orig.height + deltaY,
+              };
             }
+            return;
+          }
+
+          // Box resize: compute the new bounding box from the original.
+          let nx = orig.x;
+          let ny = orig.y;
+          let nw = orig.width;
+          let nh = orig.height;
+          switch (resizeHandle) {
+            case "nw":
+              nx = orig.x + deltaX;
+              ny = orig.y + deltaY;
+              nw = orig.width - deltaX;
+              nh = orig.height - deltaY;
+              break;
+            case "n":
+              ny = orig.y + deltaY;
+              nh = orig.height - deltaY;
+              break;
+            case "ne":
+              ny = orig.y + deltaY;
+              nw = orig.width + deltaX;
+              nh = orig.height - deltaY;
+              break;
+            case "e":
+              nw = orig.width + deltaX;
+              break;
+            case "se":
+              nw = orig.width + deltaX;
+              nh = orig.height + deltaY;
+              break;
+            case "s":
+              nh = orig.height + deltaY;
+              break;
+            case "sw":
+              nx = orig.x + deltaX;
+              nw = orig.width - deltaX;
+              nh = orig.height + deltaY;
+              break;
+            case "w":
+              nx = orig.x + deltaX;
+              nw = orig.width - deltaX;
+              break;
+          }
+          nw = Math.max(10, nw);
+          nh = Math.max(10, nh);
+
+          if (isPath) {
+            // Scale the path points to fit the new bounding box.
+            const originalPoints = orig.points || [];
+            const sx = orig.width > 0 ? nw / orig.width : 1;
+            const sy = orig.height > 0 ? nh / orig.height : 1;
+            updates[id] = {
+              data: {
+                ...element.data,
+                points: originalPoints.map((p: Point) => ({
+                  x: nx + (p.x - orig.x) * sx,
+                  y: ny + (p.y - orig.y) * sy,
+                })),
+              },
+            };
+          } else {
+            updates[id] = { x: nx, y: ny, width: nw, height: nh };
           }
         });
-        setDragStart(canvasPos);
+        if (Object.keys(updates).length > 0) onElementsUpdateLive(updates);
       } else if (isDrawing && dragStart && currentElement) {
         if (tool === "freehand" || tool === "eraser") {
           // Add point to freehand/eraser path
@@ -1578,13 +1705,12 @@ export default function Canvas({
       originalElementPositions,
       selectedElementIds,
       elements,
-      onElementUpdate,
+      onElementsUpdateLive,
       isResizing,
       resizeHandle,
       isErasing,
       eraserStroke,
       erasedElements,
-      onElementDelete,
     ]
   );
 
@@ -1651,6 +1777,17 @@ export default function Canvas({
       }
     }
 
+    // Commit a move/resize gesture as a single undo entry (live frames updated
+    // state without touching history).
+    if (isMoving || isResizing) {
+      onCommitHistory();
+    }
+
+    // Delete everything the eraser touched in one batched action.
+    if (isErasing && erasedElements.size > 0) {
+      onElementsDelete(Array.from(erasedElements));
+    }
+
     setIsDrawing(false);
     setIsPanning(false);
     setIsErasing(false);
@@ -1672,6 +1809,7 @@ export default function Canvas({
     isDrawing,
     currentElement,
     tool,
+    toolLocked,
     onElementCreate,
     onElementSelect,
     onToolChange,
@@ -1681,7 +1819,12 @@ export default function Canvas({
     isSelecting,
     selectionRect,
     getElementsInSelectionRect,
-    onElementSelect,
+    isMoving,
+    isResizing,
+    onCommitHistory,
+    isErasing,
+    erasedElements,
+    onElementsDelete,
   ]);
 
   const handleWheel = useCallback(
@@ -1718,8 +1861,9 @@ export default function Canvas({
 
   const getElementAtPoint = useCallback(
     (point: Point): CanvasElement | null => {
-      for (let i = elements.length - 1; i >= 0; i--) {
-        const element = elements[i];
+      // Walk front-to-back in stacking order so the topmost element is picked.
+      for (let i = sortedElements.length - 1; i >= 0; i--) {
+        const element = sortedElements[i];
 
         if (
           element.type === "freehand" ||
@@ -1817,7 +1961,7 @@ export default function Canvas({
       }
       return null;
     },
-    [elements, distanceToLine]
+    [sortedElements, distanceToLine]
   );
 
   const getResizeHandleAtPoint = useCallback(
@@ -1827,6 +1971,9 @@ export default function Canvas({
       );
 
       for (const element of selectedElements) {
+        // Text has no resize handles (see drawSelectionHandles).
+        if (element.type === "text") continue;
+
         let x, y, width, height;
 
         if (
@@ -1941,72 +2088,50 @@ export default function Canvas({
     [elements, selectedElementIds, zoom, panX, panY]
   );
 
-  // Calculate text element dimensions based on content
+  // Calculate text element dimensions based on content, using the same shared
+  // measurement helper as the renderer so the hit-box always matches the glyphs.
   const calculateTextDimensions = useCallback(
     (text: string, element: CanvasElement) => {
-      const fontSize = element.data?.fontSize || 16;
-      const fontFamily = element.data?.fontFamily || "Inter, sans-serif";
-      const lines = text.split("\n");
-      const lineHeight = fontSize * 1.2;
-
-      // Create a temporary canvas context to measure text
-      const tempCanvas = document.createElement("canvas");
-      const tempCtx = tempCanvas.getContext("2d");
-
-      let maxWidth = 0;
-      if (tempCtx) {
-        tempCtx.font = `${fontSize}px ${fontFamily}`;
-        lines.forEach((line: string) => {
-          const lineWidth = tempCtx.measureText(line).width;
-          maxWidth = Math.max(maxWidth, lineWidth);
-        });
-      }
-
-      const padding = 10;
-      const calculatedWidth = Math.max(maxWidth + padding, 200); // Minimum width of 200
-      const calculatedHeight = Math.max(
-        lines.length * lineHeight + padding,
-        50
-      ); // Minimum height of 50
-
-      return {
-        width: calculatedWidth,
-        height: calculatedHeight,
-      };
+      const { fontSize, fontWeight, fontFamily } = getTextFont(element);
+      return measureTextSize(text, fontSize, fontWeight, fontFamily);
     },
     []
   );
 
   const handleTextSubmit = useCallback(
     (text: string) => {
-      if (textInput && text.trim()) {
-        const elementWithText = {
-          ...textInput.element,
-          data: { ...textInput.element.data, text: text.trim() },
-        };
+      if (textInput) {
+        const trimmed = text.trim();
+        if (trimmed) {
+          const elementWithText = {
+            ...textInput.element,
+            data: { ...textInput.element.data, text: trimmed },
+          };
 
-        // Calculate proper dimensions for the text
-        const dimensions = calculateTextDimensions(
-          text.trim(),
-          elementWithText
-        );
-        elementWithText.width = dimensions.width;
-        elementWithText.height = dimensions.height;
+          // Calculate proper dimensions for the text
+          const dimensions = calculateTextDimensions(trimmed, elementWithText);
+          elementWithText.width = dimensions.width;
+          elementWithText.height = dimensions.height;
 
-        if (textInput.isEditing) {
-          // Update existing element
-          onElementUpdate(textInput.element.id, {
-            data: elementWithText.data,
-            width: elementWithText.width,
-            height: elementWithText.height,
-          });
-        } else {
-          // Create new element
-          onElementCreate(elementWithText, () => {
-            // Auto-select the created text element and switch to select tool
-            onElementSelect(elementWithText.id);
-            onToolChange("select");
-          });
+          if (textInput.isEditing) {
+            // Update existing element
+            onElementUpdate(textInput.element.id, {
+              data: elementWithText.data,
+              width: elementWithText.width,
+              height: elementWithText.height,
+            });
+          } else {
+            // Create new element
+            onElementCreate(elementWithText, () => {
+              // Auto-select the created text element and switch to select tool
+              onElementSelect(elementWithText.id);
+              onToolChange("select");
+            });
+          }
+        } else if (textInput.isEditing) {
+          // An existing text element was cleared to empty → delete it rather
+          // than leaving an invisible zero-content element behind.
+          onElementsDelete([textInput.element.id]);
         }
       }
       setTextInput(null);
@@ -2015,6 +2140,7 @@ export default function Canvas({
       textInput,
       onElementCreate,
       onElementUpdate,
+      onElementsDelete,
       onElementSelect,
       onToolChange,
       calculateTextDimensions,
@@ -2027,22 +2153,46 @@ export default function Canvas({
 
   const handleDoubleClick = useCallback(
     (e: MouseEvent) => {
-      if (tool === "select") {
-        const mousePos = getMousePos(e);
-        const canvasPos = screenToCanvas(mousePos, zoom, panX, panY);
-        const clickedElement = getElementAtPoint(canvasPos);
+      if (tool !== "select") return;
 
-        if (clickedElement && clickedElement.type === "text") {
-          // Edit existing text
-          setTextInput({
-            element: clickedElement,
-            position: { x: clickedElement.x, y: clickedElement.y },
-            isEditing: true,
-          });
-        }
+      const mousePos = getMousePos(e);
+      const canvasPos = screenToCanvas(mousePos, zoom, panX, panY);
+      const clickedElement = getElementAtPoint(canvasPos);
+
+      if (clickedElement && clickedElement.type === "text") {
+        // Double-click an existing text element → edit it in place.
+        setTextInput({
+          element: clickedElement,
+          position: { x: clickedElement.x, y: clickedElement.y },
+          isEditing: true,
+        });
+        return;
       }
+
+      // Double-click empty space (or a non-text element) → drop a new text box
+      // right there, matching the dedicated text tool's behavior.
+      const newElement: CanvasElement = {
+        id: `element_${Date.now()}_${Math.random()}`,
+        type: "text",
+        x: canvasPos.x,
+        y: canvasPos.y,
+        width: 200,
+        height: 50,
+        angle: 0,
+        strokeColor: DEFAULT_STROKE_COLOR,
+        fillColor: "transparent",
+        strokeWidth: 2,
+        strokeStyle: "solid",
+        opacity: 1,
+        locked: false,
+        zIndex: elements.length,
+        fontSize: 16,
+        fontWeight: "normal",
+        data: { text: "", fontFamily: "Inter, sans-serif" },
+      };
+      setTextInput({ element: newElement, position: canvasPos, isEditing: false });
     },
-    [tool, getMousePos, zoom, panX, panY, getElementAtPoint]
+    [tool, getMousePos, zoom, panX, panY, getElementAtPoint, elements.length]
   );
 
   const getTouchDistance = useCallback((touches: TouchList) => {
@@ -2092,7 +2242,12 @@ export default function Canvas({
           clientY: touch.clientY,
           button: 0,
           buttons: 1,
-          shiftKey: false,
+          // Forward modifier keys (hybrid tablets with a keyboard) instead of
+          // hardcoding false, so shift-add/constrain works when a key is held.
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          altKey: e.altKey,
         });
         handleMouseDown(mouseEvent);
       } else if (touches.length === 2) {
@@ -2117,6 +2272,10 @@ export default function Canvas({
           clientY: touch.clientY,
           button: 0,
           buttons: 1,
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          altKey: e.altKey,
         });
         handleMouseMove(mouseEvent);
       } else if (touches.length === 2 && lastTouchDistance && lastTouchCenter) {
@@ -2218,6 +2377,69 @@ export default function Canvas({
     draw();
   }, [draw]);
 
+  // Keep a ref to the latest draw() so the animation loop below can call it
+  // without being re-created every frame.
+  const drawRef = useRef(draw);
+  useEffect(() => {
+    drawRef.current = draw;
+  });
+
+  // Keep the latest elements reachable from async callbacks (font loading).
+  const elementsRef = useRef(elements);
+  useEffect(() => {
+    elementsRef.current = elements;
+  });
+
+  // Text is measured with the app webfont (Inter). If that font isn't loaded at
+  // first paint, the measured box can be slightly off. Once fonts are ready,
+  // repaint and re-measure existing text so the hit-box/selection match the
+  // final glyphs.
+  useEffect(() => {
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (!fonts?.ready) return;
+    let cancelled = false;
+    fonts.ready.then(() => {
+      if (cancelled) return;
+      drawRef.current();
+      const updates: Record<string, Partial<CanvasElement>> = {};
+      elementsRef.current.forEach((el) => {
+        if (el.type !== "text") return;
+        const { fontSize, fontWeight, fontFamily } = getTextFont(el);
+        const dims = measureTextSize(
+          el.data?.text || "",
+          fontSize,
+          fontWeight,
+          fontFamily
+        );
+        if (
+          Math.abs(dims.width - el.width) > 0.5 ||
+          Math.abs(dims.height - el.height) > 0.5
+        ) {
+          updates[el.id] = { width: dims.width, height: dims.height };
+        }
+      });
+      if (Object.keys(updates).length > 0) onElementsUpdateLive(updates);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [onElementsUpdateLive]);
+
+  // Laser strokes fade out over ~2s. The fade is computed from elapsed time in
+  // draw(), so we need to keep repainting while any laser is alive (or being
+  // drawn). Without this loop the opacity was only sampled once and the fade
+  // never animated.
+  useEffect(() => {
+    if (laserElements.length === 0 && !isLaserDrawing) return;
+    let raf = 0;
+    const loop = () => {
+      drawRef.current();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [laserElements.length, isLaserDrawing]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -2265,22 +2487,30 @@ export default function Canvas({
           <textarea
             ref={textareaRef}
             autoFocus
-            className="px-2 py-1 text-sm bg-transparent text-black dark:text-white focus:outline-none transition-all duration-200 resize-none overflow-hidden"
+            wrap="off"
+            // No tailwind text-size/padding classes: those force a fixed
+            // line-height that distorts multi-line text. All metrics below are
+            // matched to canvas-utils.drawText (padding/2 inset, 1.2 line-height)
+            // so the editor overlays the rendered text exactly — no jump on commit.
+            className="bg-transparent focus:outline-none resize-none overflow-hidden"
             style={{
-              fontSize: `${(textInput.element.data?.fontSize || 16) * zoom}px`,
-              fontFamily:
-                textInput.element.data?.fontFamily || "Inter, sans-serif",
+              fontSize: `${getTextFont(textInput.element).fontSize * zoom}px`,
+              fontWeight: getTextFont(textInput.element).fontWeight,
+              fontFamily: getTextFont(textInput.element).fontFamily,
+              lineHeight: 1.2,
+              padding: `${5 * zoom}px`,
               color: getThemeAwareStrokeColor(
                 textInput.element.strokeColor,
                 theme
               ),
               width: `${Math.max(200, textInput.element.width) * zoom}px`,
               minHeight: `${
-                (textInput.element.data?.fontSize || 16) * zoom + 8
+                (getTextFont(textInput.element).fontSize * 1.2 + 10) * zoom
               }px`,
               border: "none",
               outline: "none",
               boxShadow: "none",
+              background: "transparent",
               overflow: "hidden",
               resize: "none",
             }}
@@ -2299,12 +2529,9 @@ export default function Canvas({
               }
             }}
             onBlur={(e) => {
-              const currentText = e.currentTarget.value;
-              if (currentText.trim()) {
-                handleTextSubmit(currentText);
-              } else {
-                handleTextCancel();
-              }
+              // handleTextSubmit handles the empty case: a brand-new element is
+              // simply discarded, an edited element cleared to empty is deleted.
+              handleTextSubmit(e.currentTarget.value);
             }}
           />
         </div>
@@ -2315,31 +2542,19 @@ export default function Canvas({
         const embedElements = elements.filter(
           (element) => element.type === "embed"
         );
-        console.log(
-          "Canvas: Rendering embed elements:",
-          embedElements.length,
-          embedElements
-        );
 
         return embedElements.map((element) => {
+          // Match the canvas transform exactly: canvas-space → screen is
+          // x * zoom + pan (see canvasToScreen), NOT (x + pan) * zoom.
           const screenPos = {
-            x: (element.x + panX) * zoom,
-            y: (element.y + panY) * zoom,
+            x: element.x * zoom + panX,
+            y: element.y * zoom + panY,
           };
-
-          console.log(
-            "Canvas: Rendering embed element:",
-            element.id,
-            "at position:",
-            screenPos,
-            "with URL:",
-            element.embedUrl
-          );
 
           return (
             <div
               key={element.id}
-              className="absolute pointer-events-none"
+              className="absolute"
               style={{
                 left: screenPos.x,
                 top: screenPos.y,
@@ -2349,8 +2564,7 @@ export default function Canvas({
                 opacity: element.opacity,
                 willChange: "transform",
                 transformOrigin: "center center",
-                border: "2px solid red", // Debug border
-                zIndex: 1000, // Ensure it's on top
+                zIndex: 5,
               }}
             >
               <EmbedPreview

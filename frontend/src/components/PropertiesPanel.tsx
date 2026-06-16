@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { type CanvasElement } from "@/types/canvas";
+import { measureTextSize } from "@/lib/canvas-utils";
 import ColorPickerModal from "./ColorPickerModal";
 import { islandClass } from "./ToolPalette";
 import { useState } from "react";
@@ -21,10 +22,14 @@ import { cn } from "@/lib/utils";
 
 interface PropertiesPanelProps {
   selectedElements: CanvasElement[];
-  onElementUpdate: (id: string, updates: Partial<CanvasElement>) => void;
+  onElementsUpdate: (
+    updatesById: Record<string, Partial<CanvasElement>>
+  ) => void;
   onElementDelete: (id: string) => void;
   onElementDuplicate: (element: CanvasElement) => void;
   onBringToFront: (id: string) => void;
+  onBringForward: (id: string) => void;
+  onSendBackward: (id: string) => void;
   onSendToBack: (id: string) => void;
   onClearSelection: () => void;
 }
@@ -284,10 +289,12 @@ const allFillColors = [
 
 export default function PropertiesPanel({
   selectedElements,
-  onElementUpdate,
+  onElementsUpdate,
   onElementDelete,
   onElementDuplicate,
   onBringToFront,
+  onBringForward,
+  onSendBackward,
   onSendToBack,
   onClearSelection,
 }: PropertiesPanelProps) {
@@ -298,10 +305,53 @@ export default function PropertiesPanel({
   const isMobile = useIsMobile();
   const [isPropertiesPanelOpen, setIsPropertiesPanelOpen] = useState(false);
 
+  // Apply the same update to every selected element in one batched call.
+  // Looping onElementUpdate dropped all but the last element (each call was
+  // computed from the same stale snapshot).
   const updateSelectedElements = (updates: Partial<CanvasElement>) => {
+    const byId: Record<string, Partial<CanvasElement>> = {};
     selectedElements.forEach((element) => {
-      onElementUpdate(element.id, updates);
+      byId[element.id] = updates;
     });
+    onElementsUpdate(byId);
+  };
+
+  // Font size/weight changes also resize the text box so the selection outline
+  // and hit-box keep matching the rendered glyphs.
+  const updateFontSize = (fontSize: number) => {
+    const byId: Record<string, Partial<CanvasElement>> = {};
+    selectedElements.forEach((el) => {
+      if (el.type === "text") {
+        const dims = measureTextSize(
+          el.data?.text || "",
+          fontSize,
+          el.fontWeight ?? "normal",
+          el.data?.fontFamily ?? "Inter, sans-serif"
+        );
+        byId[el.id] = { fontSize, width: dims.width, height: dims.height };
+      } else {
+        byId[el.id] = { fontSize };
+      }
+    });
+    onElementsUpdate(byId);
+  };
+
+  const updateFontWeight = (fontWeight: "normal" | "bold") => {
+    const byId: Record<string, Partial<CanvasElement>> = {};
+    selectedElements.forEach((el) => {
+      if (el.type === "text") {
+        const dims = measureTextSize(
+          el.data?.text || "",
+          el.fontSize ?? 16,
+          fontWeight,
+          el.data?.fontFamily ?? "Inter, sans-serif"
+        );
+        byId[el.id] = { fontWeight, width: dims.width, height: dims.height };
+      } else {
+        byId[el.id] = { fontWeight };
+      }
+    });
+    onElementsUpdate(byId);
   };
 
   // Shared styling helpers for the floating panel
@@ -520,9 +570,7 @@ export default function PropertiesPanel({
                   </Label>
                   <Slider
                     value={[selectedElement.fontSize || 16]}
-                    onValueChange={([value]) =>
-                      updateSelectedElements({ fontSize: value })
-                    }
+                    onValueChange={([value]) => updateFontSize(value)}
                     min={8}
                     max={72}
                     step={1}
@@ -536,9 +584,7 @@ export default function PropertiesPanel({
                     {(["normal", "bold"] as const).map((weight) => (
                       <button
                         key={weight}
-                        onClick={() =>
-                          updateSelectedElements({ fontWeight: weight })
-                        }
+                        onClick={() => updateFontWeight(weight)}
                         className={cn(
                           pillClass(selectedElement.fontWeight === weight),
                           "px-2 text-xs capitalize"
@@ -563,7 +609,7 @@ export default function PropertiesPanel({
                 }
                 min={0}
                 max={100}
-                step={10}
+                step={5}
                 className="w-full"
                 data-testid="slider-opacity"
               />
@@ -586,7 +632,7 @@ export default function PropertiesPanel({
                   <ArrowDownToLine className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => onSendToBack(selectedElement.id)}
+                  onClick={() => onSendBackward(selectedElement.id)}
                   className={pillClass(false)}
                   title="Send backward"
                   data-testid="button-send-backward"
@@ -594,7 +640,7 @@ export default function PropertiesPanel({
                   <ArrowDown className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => onBringToFront(selectedElement.id)}
+                  onClick={() => onBringForward(selectedElement.id)}
                   className={pillClass(false)}
                   title="Bring forward"
                   data-testid="button-bring-forward"

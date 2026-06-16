@@ -56,6 +56,9 @@ export default function Drawing() {
     state,
     addElement,
     updateElement,
+    updateMultipleElements,
+    updateElementsLive,
+    commitHistory,
     deleteElement,
     deleteMultiElements,
     selectElement,
@@ -137,18 +140,40 @@ export default function Drawing() {
 
   const handleElementDuplicate = useCallback(
     (element: CanvasElement) => {
+      const OFFSET = 20;
+      // Path-based elements (freehand/laser) render from data.points, not x/y,
+      // so offsetting only x/y would leave the copy exactly on top of the
+      // original. Offset the points too.
+      const isPathBased =
+        element.type === "freehand" ||
+        element.type === "eraser" ||
+        element.type === "laser";
+      const data =
+        isPathBased && Array.isArray(element.data?.points)
+          ? {
+              ...element.data,
+              points: element.data.points.map((p: { x: number; y: number }) => ({
+                x: p.x + OFFSET,
+                y: p.y + OFFSET,
+              })),
+            }
+          : element.data;
+
       handleElementCreate({
         ...element,
         id: `element_${Date.now()}_${Math.random()}`,
-        x: element.x + 20,
-        y: element.y + 20,
-        zIndex: state.elements.length,
+        x: element.x + OFFSET,
+        y: element.y + OFFSET,
+        zIndex:
+          Math.max(0, ...state.elements.map((el) => el.zIndex)) + 1,
+        data,
       });
     },
-    [handleElementCreate, state.elements.length]
+    [handleElementCreate, state.elements]
   );
 
-  // Layer ordering
+  // Layer ordering. Elements are rendered in ascending zIndex order, so these
+  // adjust zIndex and rely on Canvas sorting by it.
   const handleBringToFront = useCallback(
     (id: string) => {
       const maxZIndex = Math.max(...state.elements.map((el) => el.zIndex));
@@ -163,6 +188,38 @@ export default function Drawing() {
       handleElementUpdate(id, { zIndex: minZIndex - 1 });
     },
     [state.elements, handleElementUpdate]
+  );
+
+  // Move one step forward/back by swapping zIndex with the nearest neighbour in
+  // the current stacking order. Done as a single batched, history-aware update.
+  const handleBringForward = useCallback(
+    (id: string) => {
+      const ordered = [...state.elements].sort((a, b) => a.zIndex - b.zIndex);
+      const idx = ordered.findIndex((el) => el.id === id);
+      if (idx === -1 || idx === ordered.length - 1) return;
+      const current = ordered[idx];
+      const above = ordered[idx + 1];
+      updateMultipleElements({
+        [current.id]: { zIndex: above.zIndex },
+        [above.id]: { zIndex: current.zIndex },
+      });
+    },
+    [state.elements, updateMultipleElements]
+  );
+
+  const handleSendBackward = useCallback(
+    (id: string) => {
+      const ordered = [...state.elements].sort((a, b) => a.zIndex - b.zIndex);
+      const idx = ordered.findIndex((el) => el.id === id);
+      if (idx <= 0) return;
+      const current = ordered[idx];
+      const below = ordered[idx - 1];
+      updateMultipleElements({
+        [current.id]: { zIndex: below.zIndex },
+        [below.id]: { zIndex: current.zIndex },
+      });
+    },
+    [state.elements, updateMultipleElements]
   );
 
   const handleDrawingNameChange = useCallback(
@@ -455,9 +512,11 @@ export default function Drawing() {
           toolLocked={state.toolLocked}
           onElementCreate={handleElementCreate}
           onElementUpdate={handleElementUpdate}
+          onElementsUpdateLive={updateElementsLive}
+          onCommitHistory={commitHistory}
           onElementSelect={selectElement}
           onSelectMultipleElements={selectMultipleElements}
-          onElementDelete={handleElementDelete}
+          onElementsDelete={deleteMultiElements}
           onClearSelection={clearSelection}
           onPanChange={setPan}
           onZoomChange={setZoom}
@@ -477,10 +536,12 @@ export default function Drawing() {
       {/* Properties Panel - self-positioned floating island (left) */}
       <PropertiesPanel
         selectedElements={getSelectedElements()}
-        onElementUpdate={handleElementUpdate}
+        onElementsUpdate={updateMultipleElements}
         onElementDelete={handleElementDelete}
         onElementDuplicate={handleElementDuplicate}
         onBringToFront={handleBringToFront}
+        onBringForward={handleBringForward}
+        onSendBackward={handleSendBackward}
         onSendToBack={handleSendToBack}
         onClearSelection={clearSelection}
       />

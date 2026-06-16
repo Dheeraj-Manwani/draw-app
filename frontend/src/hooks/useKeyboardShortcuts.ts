@@ -27,6 +27,19 @@ export function useKeyboardShortcuts({
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't hijack keys while the user is typing in a field (drawing name, AI
+      // prompt, embed URL, the text-tool textarea, etc.). Otherwise Backspace
+      // would delete canvas elements and Ctrl+Z/S/N/D would be stolen.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
       if (e.ctrlKey || e.metaKey) {
         switch (e.key) {
           case "z":

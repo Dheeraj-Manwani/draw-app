@@ -2,8 +2,6 @@ import { useCallback, useRef, useState, useEffect } from "react";
 import {
   type CanvasElement,
   type CanvasState,
-  type DrawingAction,
-  type Point,
   type BackgroundType,
 } from "@/types/canvas";
 
@@ -100,6 +98,47 @@ export function useCanvas() {
     },
     [state.elements, updateState]
   );
+
+  // Apply updates to many elements in a single functional setState. This avoids
+  // the "last write wins" bug that happens when callers loop and fire one
+  // updateElement per id (each call computed from the same stale snapshot, so
+  // only the final element's change survived). Pass withHistory=false for the
+  // live frames of a drag gesture and commit a single history entry on release.
+  const updateMultipleElements = useCallback(
+    (
+      updatesById: Record<string, Partial<CanvasElement>>,
+      withHistory = true
+    ) => {
+      setState((prev) => {
+        const newState: CanvasState = {
+          ...prev,
+          elements: prev.elements.map((el) =>
+            updatesById[el.id] ? { ...el, ...updatesById[el.id] } : el
+          ),
+        };
+        if (withHistory) pushToHistory(newState);
+        return newState;
+      });
+    },
+    [pushToHistory]
+  );
+
+  // Live (no-history) batch update for the per-frame updates of a drag/resize.
+  const updateElementsLive = useCallback(
+    (updatesById: Record<string, Partial<CanvasElement>>) => {
+      updateMultipleElements(updatesById, false);
+    },
+    [updateMultipleElements]
+  );
+
+  // Push the current state onto the undo stack as a single entry. Called once
+  // when a drag/resize/erase gesture ends so the whole gesture is one undo step.
+  const commitHistory = useCallback(() => {
+    setState((prev) => {
+      pushToHistory(prev);
+      return prev;
+    });
+  }, [pushToHistory]);
 
   const deleteElement = useCallback(
     (id: string) => {
@@ -239,20 +278,6 @@ export function useCanvas() {
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
-  const getElementAtPoint = useCallback(
-    (point: Point): CanvasElement | null => {
-      // Check elements in reverse order (front to back)
-      for (let i = state.elements.length - 1; i >= 0; i--) {
-        const element = state.elements[i];
-        if (isPointInElement(point, element)) {
-          return element;
-        }
-      }
-      return null;
-    },
-    [state.elements]
-  );
-
   const getSelectedElements = useCallback(() => {
     return state.elements.filter((el) =>
       state.selectedElementIds.includes(el.id)
@@ -325,6 +350,9 @@ export function useCanvas() {
     state,
     addElement,
     updateElement,
+    updateMultipleElements,
+    updateElementsLive,
+    commitHistory,
     deleteElement,
     deleteMultiElements,
     selectElement,
@@ -341,20 +369,9 @@ export function useCanvas() {
     redo,
     canUndo,
     canRedo,
-    getElementAtPoint,
     getSelectedElements,
     loadElements,
     saveToLocalStorage,
     loadFromLocalStorage,
   };
-}
-
-function isPointInElement(point: Point, element: CanvasElement): boolean {
-  const { x, y, width, height } = element;
-  return (
-    point.x >= x &&
-    point.x <= x + width &&
-    point.y >= y &&
-    point.y <= y + height
-  );
 }

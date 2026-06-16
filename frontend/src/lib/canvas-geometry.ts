@@ -29,11 +29,13 @@ function getElementBounds(element: CanvasElement): Bounds | null {
     return { minX, minY, maxX, maxY };
   }
 
+  // width/height may be negative (e.g. lines/arrows drawn right-to-left or
+  // bottom-to-top), so normalize to a proper min/max box.
   return {
-    minX: element.x,
-    minY: element.y,
-    maxX: element.x + element.width,
-    maxY: element.y + element.height,
+    minX: Math.min(element.x, element.x + element.width),
+    minY: Math.min(element.y, element.y + element.height),
+    maxX: Math.max(element.x, element.x + element.width),
+    maxY: Math.max(element.y, element.y + element.height),
   };
 }
 
