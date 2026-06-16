@@ -81,7 +81,10 @@ export default function Toolbar({
   const { theme } = useTheme();
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(drawingName);
+  const [nameTooLong, setNameTooLong] = useState(false);
   const isMobile = useIsMobile();
+
+  const MAX_NAME_LENGTH = 20;
 
   const handleExport = (format: "png" | "svg" | "json") => {
     let content: string;
@@ -132,16 +135,27 @@ export default function Toolbar({
 
   const handleNameEdit = () => {
     setTempName(drawingName);
+    setNameTooLong((drawingName?.length ?? 0) >= MAX_NAME_LENGTH);
     setIsEditingName(true);
   };
 
+  const handleNameInputChange = (value: string) => {
+    // Hard cap the name length and surface a warning when the cap is reached.
+    const capped = value.slice(0, MAX_NAME_LENGTH);
+    setNameTooLong(value.length >= MAX_NAME_LENGTH);
+    setTempName(capped);
+  };
+
   const handleNameSave = () => {
-    onDrawingNameChange(tempName || "Untitled drawing");
+    const name = tempName.slice(0, MAX_NAME_LENGTH).trim();
+    onDrawingNameChange(name || "Untitled drawing");
+    setNameTooLong(false);
     setIsEditingName(false);
   };
 
   const handleNameCancel = () => {
     setTempName(drawingName);
+    setNameTooLong(false);
     setIsEditingName(false);
   };
 
@@ -183,37 +197,61 @@ export default function Toolbar({
           />
         </div>
 
-        {!isMobile && (
-          <div className={cn("rounded-xl px-1 py-1", islandClass)}>
-            {isEditingName ? (
-              <div className="flex items-center gap-1">
+        {!isMobile &&
+          (isEditingName ? (
+            <div className="flex items-center gap-2">
+              {/* Name textbox island */}
+              <div className={cn("relative rounded-xl px-1 py-1", islandClass)}>
                 <Input
                   value={tempName}
-                  onChange={(e) => setTempName(e.target.value)}
+                  onChange={(e) => handleNameInputChange(e.target.value)}
                   onKeyDown={handleNameKeyDown}
                   onBlur={handleNameSave}
+                  maxLength={MAX_NAME_LENGTH}
                   className="h-8 w-44 border-0 bg-transparent px-2 text-sm font-medium text-black focus-visible:ring-0 dark:text-white"
                   placeholder="Untitled drawing"
                   autoFocus
                 />
+                {nameTooLong && (
+                  <p className="absolute left-2 top-full mt-1 whitespace-nowrap text-xs font-medium text-red-500 dark:text-red-400">
+                    (drawing name too long)
+                  </p>
+                )}
+              </div>
+
+              {/* Confirm / cancel — separate circular island. onMouseDown
+                  preventDefault keeps the input focused so its onBlur doesn't
+                  fire before the button's onClick. */}
+              <div
+                className={cn(
+                  "flex items-center gap-1 rounded-full p-1",
+                  islandClass
+                )}
+              >
                 <Button
                   size="icon"
                   variant="ghost"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={handleNameSave}
-                  className="h-8 w-8 rounded-lg p-0 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
+                  className="h-8 w-8 rounded-full p-0 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
+                  title="Save name"
                 >
                   <Check className="h-4 w-4" />
                 </Button>
                 <Button
                   size="icon"
                   variant="ghost"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={handleNameCancel}
-                  className="h-8 w-8 rounded-lg p-0 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  className="h-8 w-8 rounded-full p-0 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  title="Cancel"
                 >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-            ) : (
+            </div>
+          ) : (
+            <div className={cn("rounded-xl px-1 py-1", islandClass)}>
               <button
                 onClick={handleNameEdit}
                 className="flex h-8 max-w-[16rem] items-center rounded-lg px-3 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-[#ced4da] dark:hover:bg-[#31303b]"
@@ -223,9 +261,8 @@ export default function Toolbar({
                   {drawingName || "Untitled drawing"}
                 </span>
               </button>
-            )}
-          </div>
-        )}
+            </div>
+          ))}
       </div>
 
       {/* Top-right: theme, share, user */}

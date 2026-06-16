@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hand-drawn "rough" font (self-hosted, same typeface CollabyDraw/Excalidraw
+   use for their sketchy look). Powers the onboarding screen and the
+   "Hand-drawn" text font option in the properties panel. */
+@font-face {
+  font-family: "HandDrawn";
+  src: url("/fonts/HandDrawn-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --background: hsl(0 0% 100%);
   --foreground: hsl(222.2 84% 4.9%);

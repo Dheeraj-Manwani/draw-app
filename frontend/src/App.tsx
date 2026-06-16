@@ -14,9 +14,11 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Drawing} />
-      <Route path="/home" component={Drawing} />
+      <Route path="/home" component={Home} />
+      <Route path="/drawing" component={Drawing} />
       <Route path="/drawing/:id" component={Drawing} />
-      <Route component={Drawing} />
+      <Route path="/404" component={NotFound} />
+      <Route component={NotFound} />
     </Switch>
   );
 }

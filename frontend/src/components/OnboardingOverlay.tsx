@@ -1,16 +1,3 @@
-import { Button } from "@/components/ui/button";
-import {
-  MousePointer,
-  Square,
-  Circle,
-  PenTool,
-  Type,
-  ArrowRight,
-  Minus,
-  Diamond,
-  Hand,
-  Zap,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -19,229 +6,128 @@ interface OnboardingOverlayProps {
   currentTool: string;
 }
 
-const tools = [
-  {
-    icon: MousePointer,
-    label: "Select",
-    shortcut: "1",
-    description: "Select and move elements",
-  },
-  {
-    icon: Square,
-    label: "Rectangle",
-    shortcut: "2",
-    description: "Draw rectangles and squares",
-  },
-  {
-    icon: Circle,
-    label: "Ellipse",
-    shortcut: "3",
-    description: "Draw circles and ovals",
-  },
-  {
-    icon: Diamond,
-    label: "Diamond",
-    shortcut: "4",
-    description: "Draw diamond shapes",
-  },
-  {
-    icon: ArrowRight,
-    label: "Arrow",
-    shortcut: "5",
-    description: "Draw arrows and lines",
-  },
-  {
-    icon: Minus,
-    label: "Line",
-    shortcut: "6",
-    description: "Draw straight lines",
-  },
-  {
-    icon: PenTool,
-    label: "Freehand",
-    shortcut: "7",
-    description: "Draw freehand sketches",
-  },
-  {
-    icon: Type,
-    label: "Text",
-    shortcut: "8",
-    description: "Add text to your drawing",
-  },
-];
+// The self-hosted rough/hand-drawn font, matching the sketchy arrows.
+const handFont = {
+  fontFamily: '"HandDrawn", "Comic Sans MS", "Segoe Print", cursive',
+};
 
-const shortcuts = [
-  { keys: ["Ctrl", "Z"], description: "Undo" },
-  { keys: ["Ctrl", "Y"], description: "Redo" },
-  { keys: ["Delete"], description: "Delete selected" },
-  { keys: ["Ctrl", "A"], description: "Select all" },
-  { keys: ["Space"], description: "Pan around" },
-  { keys: ["Ctrl", "+"], description: "Zoom in" },
-  { keys: ["Ctrl", "-"], description: "Zoom out" },
-];
+// Muted so the welcome content reads as a watermark, never competing with the
+// canvas content once the user starts drawing.
+const HINT_COLOR = "text-gray-400 dark:text-gray-500";
 
 export default function OnboardingOverlay({
   isVisible,
   currentTool,
 }: OnboardingOverlayProps) {
   const isMobile = useIsMobile();
-  // Hide onboarding when a tool other than "select" is selected
+  // Only on the empty canvas, and not while a drawing tool is active.
   if (!isVisible || (currentTool !== "select" && currentTool !== "hand"))
     return null;
 
   return (
-    <div className="absolute inset-0 z-10 pointer-events-none">
-      {/* Main Instructions */}
+    <div className="pointer-events-none absolute inset-0 z-10 select-none">
+      {/* Center: brand logo + the single "saved locally" reassurance line. */}
       <div
         className={cn(
-          "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center min-w-80",
-          isMobile && "-translate-y-2/3"
+          "absolute left-1/2 top-1/2 w-full max-w-xl -translate-x-1/2 -translate-y-1/2 px-4 text-center",
+          isMobile && "-translate-y-[60%]"
         )}
       >
-        <div className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-gray-200 dark:border-gray-700 max-w-md mx-4">
-          <div className="space-y-6">
-            {/* Welcome Message */}
-            <div className="space-y-2">
-              <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                Welcome to Draw It!
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400">
-                Start creating beautiful drawings and diagrams
-              </p>
-            </div>
+        <h1
+          className="mb-3 text-5xl font-bold tracking-tight text-gray-300 dark:text-gray-600"
+          style={handFont}
+        >
+          Draw It
+        </h1>
+        <p
+          className={cn("text-lg leading-relaxed", HINT_COLOR)}
+          style={handFont}
+        >
+          All your data is saved locally in your browser.
+        </p>
+      </div>
 
-            {/* Quick Start */}
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
-                Quick Start
-              </h3>
-              <div className="text-left space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Pick a tool from the bottom toolbar
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Click and drag to draw on the canvas
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Select elements to edit their properties
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Start Drawing Button */}
-            {/* <Button
-              onClick={onStartDrawing}
-              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-3 rounded-xl shadow-lg transition-all duration-200 transform hover:scale-105"
+      {/* Sketchy hint arrows — only useful (and roomy enough) on larger screens */}
+      {!isMobile && (
+        <>
+          {/* Menu hint (top-left) — arrow sits just under the menu button and
+              points up at it, label trailing to the right. */}
+          <div className="absolute left-6 top-[3.75rem] flex items-start gap-2">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 41 94"
+              width="30"
+              height="68"
+              fill="none"
+              className={HINT_COLOR}
             >
-              Start Drawing
-            </Button> */}
+              <path
+                d="M38.5 83.5c-14-2-17.833-10.473-21-22.5C14.333 48.984 12 22 12 12.5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+              <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="m12.005 10.478 7.905 14.423L6 25.75l6.005-15.273Z"
+                fill="currentColor"
+              />
+              <path
+                d="M12.005 10.478c1.92 3.495 3.838 7 7.905 14.423m-7.905-14.423c3.11 5.683 6.23 11.368 7.905 14.423m0 0c-3.68.226-7.35.455-13.91.85m13.91-.85c-5.279.33-10.566.647-13.91.85m0 0c1.936-4.931 3.882-9.86 6.005-15.273M6 25.75c2.069-5.257 4.135-10.505 6.005-15.272"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+            <p
+              className={cn("mt-8 text-lg leading-snug", HINT_COLOR)}
+              style={handFont}
+            >
+              Menu, export &amp; theme
+            </p>
           </div>
-        </div>
-      </div>
 
-      {/* Tool Palette Arrow */}
-      <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2">
-        <div className="flex flex-col items-center space-y-2">
-          <div className="text-sm text-gray-500 dark:text-gray-400 font-medium bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 animate-pulse shadow-2xl shadow-blue-500/50 dark:shadow-blue-400/50 ring-2 ring-blue-500/30 dark:ring-blue-400/30 hover:shadow-blue-500/70 dark:hover:shadow-blue-400/70">
-            Tools are here
+          {/* Toolbar hint (top-center) — arrow points up to the tool palette */}
+          <div className="absolute left-1/2 top-[5rem] flex -translate-x-1/2 flex-col items-center">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 38 78"
+              width="34"
+              height="70"
+              fill="none"
+              className={HINT_COLOR}
+            >
+              <path
+                d="M1 77c14-2 31.833-11.973 35-24 3.167-12.016-6-35-9.5-43.5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+              <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="m24.165 1.093-2.132 16.309 13.27-4.258-11.138-12.05Z"
+                fill="currentColor"
+              />
+              <path
+                d="M24.165 1.093c-.522 3.953-1.037 7.916-2.132 16.309m2.131-16.309c-.835 6.424-1.68 12.854-2.13 16.308m0 0c3.51-1.125 7.013-2.243 13.27-4.257m-13.27 4.257c5.038-1.608 10.08-3.232 13.27-4.257m0 0c-3.595-3.892-7.197-7.777-11.14-12.05m11.14 12.05c-3.837-4.148-7.667-8.287-11.14-12.05"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+            <p
+              className={cn("mt-2 text-center text-lg leading-snug", HINT_COLOR)}
+              style={handFont}
+            >
+              Pick a tool &amp;
+              <br />
+              Start drawing!
+            </p>
           </div>
-          <div className="w-0 h-0 border-l-4 border-r-4 border-t-8 border-transparent border-t-gray-400 dark:border-t-gray-500"></div>
-        </div>
-      </div>
-
-      {/* Available Tools */}
-      {/* <div className="absolute top-20 left-8 max-w-xs">
-        <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">
-            Available Tools
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {tools.slice(0, 6).map((tool) => {
-              const Icon = tool.icon;
-              return (
-                <div
-                  key={tool.label}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700"
-                >
-                  <Icon className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-gray-800 dark:text-white truncate">
-                      {tool.label}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {tool.shortcut}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div> */}
-
-      {/* Keyboard Shortcuts */}
-      {/* <div className="absolute top-20 right-8 max-w-xs">
-        <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">
-            Keyboard Shortcuts
-          </h3>
-          <div className="space-y-2">
-            {shortcuts.map((shortcut, index) => (
-              <div key={index} className="flex items-center justify-between">
-                <span className="text-xs text-gray-600 dark:text-gray-400">
-                  {shortcut.description}
-                </span>
-                <div className="flex gap-1">
-                  {shortcut.keys.map((key, keyIndex) => (
-                    <kbd
-                      key={keyIndex}
-                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-400"
-                    >
-                      {key}
-                    </kbd>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div> */}
-
-      {/* Tips */}
-      {/* <div className="absolute bottom-32 left-8 max-w-sm">
-        <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">
-            💡 Pro Tips
-          </h3>
-          <div className="space-y-2 text-xs text-gray-600 dark:text-gray-400">
-            <div>
-              • Hold{" "}
-              <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
-                Shift
-              </kbd>{" "}
-              while drawing to create perfect shapes
-            </div>
-            <div>
-              • Use{" "}
-              <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
-                Space
-              </kbd>{" "}
-              + drag to pan around the canvas
-            </div>
-            <div>• Double-click text elements to edit them</div>
-            <div>• Right-click for context menus</div>
-          </div>
-        </div>
-      </div> */}
+        </>
+      )}
     </div>
   );
 }

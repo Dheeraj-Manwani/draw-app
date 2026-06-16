@@ -1,4 +1,5 @@
 import { type CanvasElement, type Point } from "@/types/canvas";
+import { DEFAULT_FONT_FAMILY } from "@/lib/fonts";
 
 export function drawElement(
   ctx: CanvasRenderingContext2D,
@@ -152,12 +153,16 @@ function drawFreehand(ctx: CanvasRenderingContext2D, element: CanvasElement) {
 export function getTextFont(element: CanvasElement): {
   fontSize: number;
   fontWeight: "normal" | "bold";
+  fontStyle: "normal" | "italic";
+  textDecoration: "none" | "underline";
   fontFamily: string;
 } {
   return {
     fontSize: element.fontSize ?? element.data?.fontSize ?? 16,
     fontWeight: element.fontWeight ?? "normal",
-    fontFamily: element.data?.fontFamily ?? "Inter, sans-serif",
+    fontStyle: element.fontStyle ?? "normal",
+    textDecoration: element.textDecoration ?? "none",
+    fontFamily: element.data?.fontFamily ?? DEFAULT_FONT_FAMILY,
   };
 }
 
@@ -168,7 +173,8 @@ export function measureTextSize(
   text: string,
   fontSize: number,
   fontWeight: "normal" | "bold" = "normal",
-  fontFamily = "Inter, sans-serif"
+  fontFamily = DEFAULT_FONT_FAMILY,
+  fontStyle: "normal" | "italic" = "normal"
 ): { width: number; height: number } {
   if (!measureCtx) {
     measureCtx = document.createElement("canvas").getContext("2d");
@@ -177,7 +183,7 @@ export function measureTextSize(
   const lineHeight = fontSize * 1.2;
   let maxWidth = 0;
   if (measureCtx) {
-    measureCtx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    measureCtx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
     lines.forEach((line) => {
       maxWidth = Math.max(maxWidth, measureCtx!.measureText(line).width);
     });
@@ -190,9 +196,11 @@ export function measureTextSize(
 }
 
 function drawText(ctx: CanvasRenderingContext2D, element: CanvasElement) {
-  const { fontSize, fontWeight, fontFamily } = getTextFont(element);
+  const { fontSize, fontWeight, fontStyle, textDecoration, fontFamily } =
+    getTextFont(element);
 
-  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  // Canvas font shorthand order is `style weight size family`.
+  ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
   ctx.fillStyle = element.strokeColor;
   ctx.textBaseline = "top";
 
@@ -208,8 +216,25 @@ function drawText(ctx: CanvasRenderingContext2D, element: CanvasElement) {
   // Draw each line. Dimensions are owned by the element (set on submit/edit and
   // when font properties change) — we no longer mutate the element here.
   lines.forEach((line: string, index: number) => {
+    const x = element.x + padding / 2;
     const y = element.y + padding / 2 + index * lineHeight;
-    ctx.fillText(line, element.x + padding / 2, y);
+    ctx.fillText(line, x, y);
+
+    // Canvas has no native underline — draw a rule just below the baseline,
+    // matched to the text color and width of the line.
+    if (textDecoration === "underline" && line.length > 0) {
+      const lineWidth = ctx.measureText(line).width;
+      const underlineY = y + fontSize * 1.05;
+      ctx.save();
+      ctx.strokeStyle = element.strokeColor;
+      ctx.lineWidth = Math.max(1, fontSize / 16);
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x, underlineY);
+      ctx.lineTo(x + lineWidth, underlineY);
+      ctx.stroke();
+      ctx.restore();
+    }
   });
 }
 
@@ -423,6 +448,10 @@ function drawLaser(ctx: CanvasRenderingContext2D, element: CanvasElement) {
 
   ctx.save();
   ctx.strokeStyle = element.strokeColor;
+  // fillStyle must be set explicitly: the single-point dot below is filled, and
+  // without this it inherited whatever fill was active (often transparent), so
+  // a laser tap rendered nothing.
+  ctx.fillStyle = element.strokeColor;
   ctx.lineWidth = element.strokeWidth;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -436,7 +465,7 @@ function drawLaser(ctx: CanvasRenderingContext2D, element: CanvasElement) {
     // Draw single point as a circle
     const point = points[0];
     ctx.beginPath();
-    ctx.arc(point.x, point.y, element.strokeWidth / 2, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, Math.max(element.strokeWidth / 2, 2), 0, Math.PI * 2);
     ctx.fill();
   } else if (points.length > 1) {
     // Draw smooth curve through points

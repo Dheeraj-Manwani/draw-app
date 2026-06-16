@@ -20,12 +20,19 @@ const INITIAL_STATE: CanvasState = {
   toolLocked: false,
 };
 
+// Rapid history writes that land within this window of each other (e.g. each
+// frame of dragging an opacity/font-size slider) are collapsed into a single
+// undo step instead of one entry per tick.
+const HISTORY_COALESCE_MS = 400;
+
 export function useCanvas() {
   const [state, setState] = useState<CanvasState>(INITIAL_STATE);
   const [history, setHistory] = useState<UndoableState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const undoRedoInProgress = useRef(false);
   const historyIndexRef = useRef(-1);
+  // Timestamp of the last history write, used to debounce/coalesce bursts.
+  const lastPushTimeRef = useRef(0);
 
   // Initialize history with initial state
   useEffect(() => {
@@ -40,25 +47,48 @@ export function useCanvas() {
     }
   }, [history.length]);
 
-  const pushToHistory = useCallback((newState: CanvasState) => {
-    if (undoRedoInProgress.current) return;
+  // coalesce=true (the default) lets a burst of writes replace the last entry
+  // rather than append, so dragging a slider produces one undo step. Gesture
+  // commits (commitHistory) pass coalesce=false so the finished move/resize is
+  // always its own distinct, non-mergeable entry.
+  const pushToHistory = useCallback(
+    (newState: CanvasState, coalesce = true) => {
+      if (undoRedoInProgress.current) return;
 
-    const undoableState: UndoableState = {
-      elements: newState.elements,
-      selectedElementIds: newState.selectedElementIds,
-    };
+      const undoableState: UndoableState = {
+        elements: newState.elements,
+        selectedElementIds: newState.selectedElementIds,
+      };
 
-    setHistory((prev) => {
-      const newHistory = prev.slice(0, historyIndexRef.current + 1);
-      newHistory.push(undoableState);
-      return newHistory.slice(-50); // Keep last 50 states
-    });
-    setHistoryIndex((prev) => {
-      const newIndex = Math.min(prev + 1, 49);
-      historyIndexRef.current = newIndex;
-      return newIndex;
-    });
-  }, []);
+      const now = Date.now();
+      const shouldCoalesce =
+        coalesce &&
+        now - lastPushTimeRef.current < HISTORY_COALESCE_MS &&
+        historyIndexRef.current >= 1;
+      lastPushTimeRef.current = now;
+
+      setHistory((prev) => {
+        const base = prev.slice(0, historyIndexRef.current + 1);
+        if (shouldCoalesce && base.length > 0) {
+          // Replace the most recent entry — collapses the burst.
+          base[base.length - 1] = undoableState;
+        } else {
+          base.push(undoableState);
+        }
+        return base.slice(-50); // Keep last 50 states
+      });
+
+      // Only advance the cursor when we actually appended a new entry.
+      if (!shouldCoalesce) {
+        setHistoryIndex((prev) => {
+          const newIndex = Math.min(prev + 1, 49);
+          historyIndexRef.current = newIndex;
+          return newIndex;
+        });
+      }
+    },
+    []
+  );
 
   const updateState = useCallback(
     (updates: Partial<CanvasState>) => {
@@ -133,9 +163,11 @@ export function useCanvas() {
 
   // Push the current state onto the undo stack as a single entry. Called once
   // when a drag/resize/erase gesture ends so the whole gesture is one undo step.
+  // The live frames of the gesture used updateElementsLive (no history), so this
+  // single non-coalescing push is the only entry the whole resize/move creates.
   const commitHistory = useCallback(() => {
     setState((prev) => {
-      pushToHistory(prev);
+      pushToHistory(prev, false);
       return prev;
     });
   }, [pushToHistory]);

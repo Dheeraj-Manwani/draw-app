@@ -33,6 +33,8 @@ export interface CanvasElement {
   // Text-specific properties
   fontSize?: number;
   fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
   text?: string;
   // Image-specific properties
   imageUrl?: string;

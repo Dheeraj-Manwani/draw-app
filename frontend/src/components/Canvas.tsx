@@ -7,6 +7,7 @@ import {
   measureTextSize,
   getTextFont,
 } from "@/lib/canvas-utils";
+import { DEFAULT_FONT_FAMILY } from "@/lib/fonts";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   getThemeBackgroundColor,
@@ -19,6 +20,48 @@ import {
 // stored value no longer depends on which theme was active at creation (which
 // previously surprised on export).
 const DEFAULT_STROKE_COLOR = "#000000";
+
+// Map a resize/endpoint handle id to the matching CSS cursor. Corner handles use
+// the two-headed diagonal cursors so the arrows point along the direction the
+// edge will actually move; edge handles use the axis cursors; arrow/line
+// endpoints (start/end) read as "move" since they drag freely.
+function handleToCursor(handle: string | null): string {
+  switch (handle) {
+    case "nw":
+    case "se":
+      return "nwse-resize";
+    case "ne":
+    case "sw":
+      return "nesw-resize";
+    case "n":
+    case "s":
+      return "ns-resize";
+    case "e":
+    case "w":
+      return "ew-resize";
+    case "start":
+    case "end":
+      return "move";
+    default:
+      return "move";
+  }
+}
+
+// Custom (image data-URI) cursors that aren't standard CSS keywords. Everything
+// else in cursorState is passed straight through to `style.cursor`.
+const CUSTOM_CURSORS: Record<string, string> = {
+  laser:
+    "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjYiIGZpbGw9IiNmZjAwMDAiLz4KPC9zdmc+Cg==') 8 8, crosshair",
+  // A small rounded square outline = the eraser nib. (link-style "pointer" was
+  // misleading — nothing here is a link.)
+  eraser:
+    "url(\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDIwIDIwIj48cmVjdCB4PSIzIiB5PSIzIiB3aWR0aD0iMTQiIGhlaWdodD0iMTQiIHJ4PSIzIiBmaWxsPSJ3aGl0ZSIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjEuNSIvPjwvc3ZnPg==\") 10 10, auto",
+};
+
+// Resolve a cursorState into the value we hand to CSS `style.cursor`.
+function cssCursor(cursorState: string): string {
+  return CUSTOM_CURSORS[cursorState] ?? cursorState;
+}
 import ScrollToContentButton from "./ScrollToContentButton";
 import ImageUploadModal from "./ImageUploadModal";
 import EmbedLinkModal from "./EmbedLinkModal";
@@ -147,10 +190,22 @@ export default function Canvas({
   const [originalElementPositions, setOriginalElementPositions] = useState<
     Map<
       string,
-      { x: number; y: number; width: number; height: number; points?: Point[] }
+      {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        points?: Point[];
+        // Text resize scales the font rather than free-distorting the box, so we
+        // snapshot the starting font size and recompute size from it.
+        fontSize?: number;
+      }
     >
   >(new Map());
   const [cursorState, setCursorState] = useState<string>("default");
+  // The resize/endpoint handle currently under the pointer (select tool, no
+  // active gesture). Drives the hover cursor so it previews the resize direction.
+  const [hoveredHandle, setHoveredHandle] = useState<string | null>(null);
   const [laserElements, setLaserElements] = useState<CanvasElement[]>([]);
   const [isLaserDrawing, setIsLaserDrawing] = useState(false);
   const [currentLaserPath, setCurrentLaserPath] = useState<Point[]>([]);
@@ -203,35 +258,41 @@ export default function Canvas({
     };
   }, []);
 
-  // Function to determine cursor state
+  // Single source of truth for the canvas cursor. Priority: an active gesture
+  // (resize/move/pan/marquee) wins, then the tool, then — for the select tool —
+  // what's under the pointer (a resize handle previews its direction, a plain
+  // element shows "move", empty space is the default arrow).
   const getCursorState = useCallback(() => {
+    // Active gestures
+    if (isResizing && resizeHandle) return handleToCursor(resizeHandle);
     if (isMoving) return "move";
-    if (isResizing && resizeHandle) {
-      switch (resizeHandle) {
-        case "nw":
-        case "se":
-          return "nw-resize";
-        case "ne":
-        case "sw":
-          return "ne-resize";
-        case "n":
-        case "s":
-          return "ns-resize";
-        case "e":
-        case "w":
-          return "ew-resize";
-        default:
-          return "move";
-      }
-    }
     if (isPanning) return "grabbing";
     if (isSelecting) return "crosshair";
+
+    // Tool defaults
     if (tool === "hand") return "grab";
-    if (tool === "select") return "default";
-    if (tool === "eraser") return "pointer";
+    if (tool === "eraser") return "eraser";
     if (tool === "laser") return "laser";
+
+    // Select tool: reflect what's under the pointer
+    if (tool === "select") {
+      if (hoveredHandle) return handleToCursor(hoveredHandle);
+      if (hoveredElement) return "move";
+      return "default";
+    }
+
+    // Drawing tools (rectangle, ellipse, line, arrow, diamond, freehand, text…)
     return "crosshair";
-  }, [isMoving, isResizing, resizeHandle, isPanning, isSelecting, tool]);
+  }, [
+    isMoving,
+    isResizing,
+    resizeHandle,
+    isPanning,
+    isSelecting,
+    tool,
+    hoveredHandle,
+    hoveredElement,
+  ]);
 
   // Check if any elements are visible in the current viewport
   const hasVisibleElements = useCallback(() => {
@@ -787,9 +848,40 @@ export default function Canvas({
       );
 
       selectedElements.forEach((element) => {
-        // Text elements show no selection rectangle or resize handles — the
-        // only affordance is double-clicking to edit them in place.
-        if (element.type === "text") return;
+        // Text gets a faint dashed border plus four corner dots. The corners
+        // scale the font size (see the resize handler); there are no edge
+        // handles since text is never free-distorted. Double-click edits in place.
+        if (element.type === "text") {
+          const tx = element.x * zoom + panX;
+          const ty = element.y * zoom + panY;
+          const tw = element.width * zoom;
+          const th = element.height * zoom;
+          ctx.save();
+          ctx.strokeStyle = "hsla(221, 83%, 53%, 0.4)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(tx, ty, tw, th);
+
+          // Corner dots
+          const r = 4;
+          ctx.setLineDash([]);
+          ctx.fillStyle = "hsl(221, 83%, 53%)";
+          ctx.strokeStyle = "white";
+          ctx.lineWidth = 2;
+          [
+            { cx: tx, cy: ty },
+            { cx: tx + tw, cy: ty },
+            { cx: tx + tw, cy: ty + th },
+            { cx: tx, cy: ty + th },
+          ].forEach(({ cx, cy }) => {
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+          ctx.restore();
+          return;
+        }
 
         let x, y, width, height;
 
@@ -1137,6 +1229,7 @@ export default function Canvas({
               width: number;
               height: number;
               points?: Point[];
+              fontSize?: number;
             }
           >();
           selectedElementIds.forEach((id) => {
@@ -1161,31 +1254,13 @@ export default function Canvas({
                 y: el.y,
                 width: el.width,
                 height: el.height,
+                fontSize: el.type === "text" ? el.fontSize ?? 16 : undefined,
               });
             }
           });
           setOriginalElementPositions(snapshot);
-          // Set appropriate resize cursor
-          switch (handle) {
-            case "nw":
-            case "se":
-              setCursorState("nw-resize");
-              break;
-            case "ne":
-            case "sw":
-              setCursorState("ne-resize");
-              break;
-            case "n":
-            case "s":
-              setCursorState("ns-resize");
-              break;
-            case "e":
-            case "w":
-              setCursorState("ew-resize");
-              break;
-            default:
-              setCursorState("move");
-          }
+          // Pin the matching resize cursor for the whole gesture.
+          setCursorState(handleToCursor(handle));
           return;
         }
 
@@ -1254,7 +1329,7 @@ export default function Canvas({
           zIndex: elements.length,
           fontSize: 16,
           fontWeight: "normal",
-          data: { text: "", fontFamily: "Inter, sans-serif" },
+          data: { text: "", fontFamily: DEFAULT_FONT_FAMILY },
         };
 
         setTextInput({
@@ -1429,47 +1504,33 @@ export default function Canvas({
           };
         });
       } else {
-        // Show hover effect for elements when in select mode
-        if (tool === "select") {
+        // Hover feedback for the select tool — but only when no gesture is in
+        // progress (during a move/resize/pan the top-of-handler getCursorState()
+        // already pins the right cursor, and we must not flip it back to
+        // default just because the pointer drifted off the element).
+        if (tool === "select" && !isMoving && !isResizing && !isPanning) {
           const hoveredEl = getElementAtPoint(canvasPos);
           setHoveredElement(hoveredEl);
 
-          // Check if hovering over resize handles when in select mode
-          if (selectedElementIds.length > 0) {
-            const handle = getResizeHandleAtPoint(mousePos);
-            if (handle) {
-              switch (handle) {
-                case "nw":
-                case "se":
-                  setCursorState("nw-resize");
-                  break;
-                case "ne":
-                case "sw":
-                  setCursorState("ne-resize");
-                  break;
-                case "n":
-                case "s":
-                  setCursorState("ns-resize");
-                  break;
-                case "e":
-                case "w":
-                  setCursorState("ew-resize");
-                  break;
-                case "start":
-                case "end":
-                  setCursorState("crosshair"); // Use crosshair for start/end handles
-                  break;
-                default:
-                  setCursorState("default");
-              }
-            } else {
-              setCursorState(hoveredEl ? "move" : "default");
-            }
-          } else {
-            setCursorState(hoveredEl ? "move" : "default");
-          }
-        } else {
+          // A handle only exists to hover when something is selected.
+          const handle =
+            selectedElementIds.length > 0
+              ? getResizeHandleAtPoint(mousePos)
+              : null;
+          setHoveredHandle(handle);
+
+          // Compute from the local values so the cursor updates this frame
+          // (reading the just-queued hover state would lag by one event).
+          setCursorState(
+            handle
+              ? handleToCursor(handle)
+              : hoveredEl
+              ? "move"
+              : "default"
+          );
+        } else if (tool !== "select") {
           setHoveredElement(null);
+          setHoveredHandle(null);
         }
       }
 
@@ -1578,6 +1639,43 @@ export default function Canvas({
                 height: orig.height + deltaY,
               };
             }
+            return;
+          }
+
+          // Text: scale the font size from a corner drag instead of distorting
+          // the box. The opposite corner stays anchored; the height change of the
+          // dragged corner drives the scale, then we re-measure the box to fit.
+          if (element.type === "text") {
+            const origFont = orig.fontSize ?? element.fontSize ?? 16;
+            const isTopHandle =
+              resizeHandle === "nw" || resizeHandle === "ne";
+            const isLeftHandle =
+              resizeHandle === "nw" || resizeHandle === "sw";
+            const anchorX = isLeftHandle ? orig.x + orig.width : orig.x;
+            const anchorY = isTopHandle ? orig.y + orig.height : orig.y;
+
+            const newBoxHeight = isTopHandle
+              ? orig.height - deltaY
+              : orig.height + deltaY;
+            const scale = orig.height > 0 ? newBoxHeight / orig.height : 1;
+            const newFontSize = Math.max(
+              8,
+              Math.min(200, Math.round(origFont * scale))
+            );
+            const dims = measureTextSize(
+              element.data?.text || "",
+              newFontSize,
+              element.fontWeight ?? "normal",
+              element.data?.fontFamily ?? DEFAULT_FONT_FAMILY,
+              element.fontStyle ?? "normal"
+            );
+            updates[id] = {
+              fontSize: newFontSize,
+              width: dims.width,
+              height: dims.height,
+              x: isLeftHandle ? anchorX - dims.width : anchorX,
+              y: isTopHandle ? anchorY - dims.height : anchorY,
+            };
             return;
           }
 
@@ -1711,6 +1809,13 @@ export default function Canvas({
       isErasing,
       eraserStroke,
       erasedElements,
+      // isLaserDrawing must be here: without it the attached mousemove listener
+      // keeps a stale `false` after mousedown sets it true (no other dep changes
+      // on the laser tool), so the live path never grew during a drag — the
+      // laser only showed the single mousedown point on release.
+      isLaserDrawing,
+      isSelecting,
+      selectionRect,
     ]
   );
 
@@ -1799,6 +1904,7 @@ export default function Canvas({
     setDragStart(null);
     setMoveStart(null);
     setResizeHandle(null);
+    setHoveredHandle(null);
     setOriginalElementPositions(new Map());
     setCurrentElement(null);
     setErasedElements(new Set());
@@ -1838,9 +1944,19 @@ export default function Canvas({
       const mouseY = e.clientY - rect.top;
 
       if (e.ctrlKey || e.metaKey) {
-        // Zoom with Ctrl/Cmd + scroll
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
-        const newZoom = Math.max(0.1, Math.min(5, zoom * delta));
+        // Zoom with Ctrl/Cmd + scroll (or trackpad pinch). Scale the zoom step by
+        // the actual wheel delta instead of a fixed 0.9/1.1: a trackpad pinch
+        // fires a rapid stream of small-delta events that compounded into a huge,
+        // jumpy zoom with the old constant factor. We clamp the per-event delta
+        // so a chunky mouse-wheel notch (deltaY ~100) doesn't over-zoom, while
+        // small trackpad deltas stay smooth. exp() keeps it symmetric (zoom in
+        // then out returns to the same level).
+        const ZOOM_SENSITIVITY = 0.01;
+        const clampedDelta = Math.max(-10, Math.min(10, e.deltaY));
+        const newZoom = Math.max(
+          0.1,
+          Math.min(5, zoom * Math.exp(-clampedDelta * ZOOM_SENSITIVITY))
+        );
 
         // Zoom towards mouse position
         const zoomFactor = newZoom / zoom;
@@ -1971,9 +2087,6 @@ export default function Canvas({
       );
 
       for (const element of selectedElements) {
-        // Text has no resize handles (see drawSelectionHandles).
-        if (element.type === "text") continue;
-
         let x, y, width, height;
 
         if (
@@ -2027,6 +2140,29 @@ export default function Canvas({
             { id: "end", x: endX - handleSize / 2, y: endY - handleSize / 2 },
           ];
 
+          for (const handle of handles) {
+            if (
+              point.x >= handle.x &&
+              point.x <= handle.x + handleSize &&
+              point.y >= handle.y &&
+              point.y <= handle.y + handleSize
+            ) {
+              return handle.id;
+            }
+          }
+        } else if (element.type === "text") {
+          // Text only gets the four corners — it's scaled (font size), never
+          // free-distorted, so edge handles wouldn't make sense.
+          const handles = [
+            { id: "nw", x: x - handleSize / 2, y: y - handleSize / 2 },
+            { id: "ne", x: x + width - handleSize / 2, y: y - handleSize / 2 },
+            {
+              id: "se",
+              x: x + width - handleSize / 2,
+              y: y + height - handleSize / 2,
+            },
+            { id: "sw", x: x - handleSize / 2, y: y + height - handleSize / 2 },
+          ];
           for (const handle of handles) {
             if (
               point.x >= handle.x &&
@@ -2092,8 +2228,9 @@ export default function Canvas({
   // measurement helper as the renderer so the hit-box always matches the glyphs.
   const calculateTextDimensions = useCallback(
     (text: string, element: CanvasElement) => {
-      const { fontSize, fontWeight, fontFamily } = getTextFont(element);
-      return measureTextSize(text, fontSize, fontWeight, fontFamily);
+      const { fontSize, fontWeight, fontFamily, fontStyle } =
+        getTextFont(element);
+      return measureTextSize(text, fontSize, fontWeight, fontFamily, fontStyle);
     },
     []
   );
@@ -2188,7 +2325,7 @@ export default function Canvas({
         zIndex: elements.length,
         fontSize: 16,
         fontWeight: "normal",
-        data: { text: "", fontFamily: "Inter, sans-serif" },
+        data: { text: "", fontFamily: DEFAULT_FONT_FAMILY },
       };
       setTextInput({ element: newElement, position: canvasPos, isEditing: false });
     },
@@ -2404,12 +2541,13 @@ export default function Canvas({
       const updates: Record<string, Partial<CanvasElement>> = {};
       elementsRef.current.forEach((el) => {
         if (el.type !== "text") return;
-        const { fontSize, fontWeight, fontFamily } = getTextFont(el);
+        const { fontSize, fontWeight, fontFamily, fontStyle } = getTextFont(el);
         const dims = measureTextSize(
           el.data?.text || "",
           fontSize,
           fontWeight,
-          fontFamily
+          fontFamily,
+          fontStyle
         );
         if (
           Math.abs(dims.width - el.width) > 0.5 ||
@@ -2463,15 +2601,8 @@ export default function Canvas({
     <div className="relative w-full h-full overflow-hidden bg-white dark:bg-[#121212]">
       <canvas
         ref={canvasRef}
-        className={`absolute inset-0 w-full h-full ${
-          cursorState === "laser" ? "cursor-laser" : `cursor-${cursorState}`
-        }`}
-        style={{
-          cursor:
-            cursorState === "laser"
-              ? "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjYiIGZpbGw9IiNmZjAwMDAiLz4KPC9zdmc+Cg==') 8 8, auto"
-              : cursorState,
-        }}
+        className="absolute inset-0 w-full h-full"
+        style={{ cursor: cssCursor(cursorState) }}
         data-testid="main-canvas"
       />
 
@@ -2496,9 +2627,17 @@ export default function Canvas({
             style={{
               fontSize: `${getTextFont(textInput.element).fontSize * zoom}px`,
               fontWeight: getTextFont(textInput.element).fontWeight,
+              fontStyle: getTextFont(textInput.element).fontStyle,
+              textDecoration: getTextFont(textInput.element).textDecoration,
               fontFamily: getTextFont(textInput.element).fontFamily,
               lineHeight: 1.2,
               padding: `${5 * zoom}px`,
+              // Canvas draws with textBaseline "top" (no leading above the first
+              // line), but a 1.2 line-height box centers the glyph and adds
+              // ~0.1·fontSize of half-leading on top. Pull the textarea up by
+              // exactly that so the live text sits where the canvas text was —
+              // otherwise it visibly nudged down on entering edit mode.
+              marginTop: `${-getTextFont(textInput.element).fontSize * 0.1 * zoom}px`,
               color: getThemeAwareStrokeColor(
                 textInput.element.strokeColor,
                 theme
@@ -2517,10 +2656,41 @@ export default function Canvas({
             placeholder={textInput.isEditing ? "Edit text..." : "Enter text..."}
             defaultValue={textInput.element.data?.text || ""}
             onInput={(e) => {
-              // Auto-resize textarea based on content
+              // Auto-resize textarea height to fit the content.
               const target = e.target as HTMLTextAreaElement;
               target.style.height = "auto";
               target.style.height = `${target.scrollHeight}px`;
+
+              // Keep the on-canvas box in sync with the typed text *live*, not
+              // just on blur. Otherwise extra lines spilled past the (stale)
+              // selection border until you clicked away. Re-measure and grow the
+              // box now: update the overlay's own element, and for an existing
+              // element also update the committed copy so its border tracks.
+              const el = textInput.element;
+              const dims = measureTextSize(
+                target.value,
+                el.fontSize ?? 16,
+                el.fontWeight ?? "normal",
+                el.data?.fontFamily ?? DEFAULT_FONT_FAMILY,
+                el.fontStyle ?? "normal"
+              );
+              setTextInput((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      element: {
+                        ...prev.element,
+                        width: dims.width,
+                        height: dims.height,
+                      },
+                    }
+                  : prev
+              );
+              if (textInput.isEditing) {
+                onElementsUpdateLive({
+                  [el.id]: { width: dims.width, height: dims.height },
+                });
+              }
             }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {

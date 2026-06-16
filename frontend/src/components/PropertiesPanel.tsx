@@ -10,13 +10,22 @@ import {
   Trash2,
   MoreHorizontal,
   Settings,
+  Italic,
+  Underline,
+  Pencil,
+  Code,
   X,
 } from "lucide-react";
 import { type CanvasElement } from "@/types/canvas";
 import { measureTextSize } from "@/lib/canvas-utils";
+import {
+  TEXT_FONT_OPTIONS,
+  FONT_SIZE_OPTIONS,
+  DEFAULT_FONT_FAMILY,
+} from "@/lib/fonts";
 import ColorPickerModal from "./ColorPickerModal";
 import { islandClass } from "./ToolPalette";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +42,44 @@ interface PropertiesPanelProps {
   onSendToBack: (id: string) => void;
   onClearSelection: () => void;
 }
+
+// Which properties actually make sense for each element type. The panel renders
+// a section only if the capability is present for *every* selected element
+// (intersection), so e.g. an image never shows stroke/fill controls and a mixed
+// selection only shows what they share.
+type Capability =
+  | "stroke"
+  | "fill"
+  | "strokeWidth"
+  | "strokeStyle"
+  | "fontFamily"
+  | "fontSize"
+  | "fontWeight"
+  | "fontStyle"
+  | "textDecoration"
+  | "opacity";
+
+const ELEMENT_CAPS: Record<string, Capability[]> = {
+  rectangle: ["stroke", "fill", "strokeWidth", "strokeStyle", "opacity"],
+  ellipse: ["stroke", "fill", "strokeWidth", "strokeStyle", "opacity"],
+  diamond: ["stroke", "fill", "strokeWidth", "strokeStyle", "opacity"],
+  line: ["stroke", "strokeWidth", "strokeStyle", "opacity"],
+  arrow: ["stroke", "strokeWidth", "strokeStyle", "opacity"],
+  freehand: ["stroke", "strokeWidth", "strokeStyle", "opacity"],
+  text: [
+    "stroke",
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "fontStyle",
+    "textDecoration",
+    "opacity",
+  ],
+  image: ["opacity"],
+  embed: ["opacity"],
+  eraser: [],
+  laser: [],
+};
 
 // Main colors shown in the properties panel (Excalidraw-style palette)
 const mainStrokeColors = [
@@ -300,6 +347,19 @@ export default function PropertiesPanel({
 }: PropertiesPanelProps) {
   const hasSelection = selectedElements.length > 0;
   const selectedElement = selectedElements[0];
+
+  // Capabilities common to the whole selection (intersection of per-type caps).
+  const caps = useMemo(() => {
+    let common: Capability[] | null = null;
+    for (const el of selectedElements) {
+      const set = ELEMENT_CAPS[el.type] ?? [];
+      common =
+        common === null ? set : common.filter((c) => set.includes(c));
+    }
+    return new Set<Capability>(common ?? []);
+  }, [selectedElements]);
+  const has = (c: Capability) => caps.has(c);
+
   const [isStrokeColorModalOpen, setIsStrokeColorModalOpen] = useState(false);
   const [isFillColorModalOpen, setIsFillColorModalOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -326,11 +386,35 @@ export default function PropertiesPanel({
           el.data?.text || "",
           fontSize,
           el.fontWeight ?? "normal",
-          el.data?.fontFamily ?? "Inter, sans-serif"
+          el.data?.fontFamily ?? DEFAULT_FONT_FAMILY,
+          el.fontStyle ?? "normal"
         );
         byId[el.id] = { fontSize, width: dims.width, height: dims.height };
       } else {
         byId[el.id] = { fontSize };
+      }
+    });
+    onElementsUpdate(byId);
+  };
+
+  // Font family lives on element.data, so merge into data (preserving text)
+  // and re-measure since glyph widths differ between typefaces.
+  const updateFontFamily = (fontFamily: string) => {
+    const byId: Record<string, Partial<CanvasElement>> = {};
+    selectedElements.forEach((el) => {
+      if (el.type === "text") {
+        const dims = measureTextSize(
+          el.data?.text || "",
+          el.fontSize ?? 16,
+          el.fontWeight ?? "normal",
+          fontFamily,
+          el.fontStyle ?? "normal"
+        );
+        byId[el.id] = {
+          data: { ...el.data, fontFamily },
+          width: dims.width,
+          height: dims.height,
+        };
       }
     });
     onElementsUpdate(byId);
@@ -344,11 +428,33 @@ export default function PropertiesPanel({
           el.data?.text || "",
           el.fontSize ?? 16,
           fontWeight,
-          el.data?.fontFamily ?? "Inter, sans-serif"
+          el.data?.fontFamily ?? DEFAULT_FONT_FAMILY,
+          el.fontStyle ?? "normal"
         );
         byId[el.id] = { fontWeight, width: dims.width, height: dims.height };
       } else {
         byId[el.id] = { fontWeight };
+      }
+    });
+    onElementsUpdate(byId);
+  };
+
+  // Italic changes glyph metrics slightly, so re-measure the box. Underline does
+  // not affect layout, so a plain property update is enough for it.
+  const updateFontStyle = (fontStyle: "normal" | "italic") => {
+    const byId: Record<string, Partial<CanvasElement>> = {};
+    selectedElements.forEach((el) => {
+      if (el.type === "text") {
+        const dims = measureTextSize(
+          el.data?.text || "",
+          el.fontSize ?? 16,
+          el.fontWeight ?? "normal",
+          el.data?.fontFamily ?? DEFAULT_FONT_FAMILY,
+          fontStyle
+        );
+        byId[el.id] = { fontStyle, width: dims.width, height: dims.height };
+      } else {
+        byId[el.id] = { fontStyle };
       }
     });
     onElementsUpdate(byId);
@@ -414,7 +520,7 @@ export default function PropertiesPanel({
 
           <div className="space-y-3.5">
             {/* Stroke color */}
-            {!["eraser", "laser"].includes(selectedElement.type) && (
+            {has("stroke") && (
               <div>
                 <Label className={sectionLabel}>Stroke</Label>
                 <div className="flex items-center gap-1.5">
@@ -449,9 +555,7 @@ export default function PropertiesPanel({
             )}
 
             {/* Background / fill color */}
-            {!["freehand", "line", "arrow", "eraser", "laser"].includes(
-              selectedElement.type
-            ) && (
+            {has("fill") && (
               <div>
                 <Label className={sectionLabel}>Background</Label>
                 <div className="flex items-center gap-1.5">
@@ -505,7 +609,7 @@ export default function PropertiesPanel({
             )}
 
             {/* Stroke width */}
-            {!["eraser", "laser"].includes(selectedElement.type) && (
+            {has("strokeWidth") && (
               <div>
                 <Label className={sectionLabel}>Stroke width</Label>
                 <div className="flex items-center gap-1.5">
@@ -532,7 +636,7 @@ export default function PropertiesPanel({
             )}
 
             {/* Stroke style */}
-            {!["eraser", "laser"].includes(selectedElement.type) && (
+            {has("strokeStyle") && (
               <div>
                 <Label className={sectionLabel}>Stroke style</Label>
                 <div className="flex items-center gap-1.5">
@@ -561,45 +665,132 @@ export default function PropertiesPanel({
               </div>
             )}
 
-            {/* Text properties */}
-            {selectedElement.type === "text" && (
-              <>
-                <div>
-                  <Label className={sectionLabel}>
-                    Font size: {selectedElement.fontSize || 16}px
-                  </Label>
-                  <Slider
-                    value={[selectedElement.fontSize || 16]}
-                    onValueChange={([value]) => updateFontSize(value)}
-                    min={8}
-                    max={72}
-                    step={1}
-                    className="w-full"
-                    data-testid="slider-font-size"
-                  />
-                </div>
-                <div>
-                  <Label className={sectionLabel}>Font weight</Label>
-                  <div className="flex items-center gap-1.5">
-                    {(["normal", "bold"] as const).map((weight) => (
+            {/* Font family */}
+            {has("fontFamily") && (
+              <div>
+                <Label className={sectionLabel}>Font family</Label>
+                <div className="flex items-center gap-1.5">
+                  {TEXT_FONT_OPTIONS.map((font) => {
+                    const current =
+                      selectedElement.data?.fontFamily ?? DEFAULT_FONT_FAMILY;
+                    return (
                       <button
-                        key={weight}
-                        onClick={() => updateFontWeight(weight)}
-                        className={cn(
-                          pillClass(selectedElement.fontWeight === weight),
-                          "px-2 text-xs capitalize"
-                        )}
-                        data-testid={`font-weight-${weight}`}
+                        key={font.key}
+                        onClick={() => updateFontFamily(font.fontFamily)}
+                        className={pillClass(current === font.fontFamily)}
+                        title={font.label}
+                        data-testid={`font-family-${font.key}`}
                       >
-                        {weight}
+                        {font.key === "hand" ? (
+                          <Pencil className="h-4 w-4" />
+                        ) : font.key === "code" ? (
+                          <Code className="h-4 w-4" />
+                        ) : (
+                          <span
+                            className="text-base leading-none"
+                            style={{ fontFamily: font.fontFamily }}
+                          >
+                            A
+                          </span>
+                        )}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
-              </>
+              </div>
+            )}
+
+            {/* Font size — quick S / M / L / XL presets (drag the text box to
+                fine-tune in between). */}
+            {has("fontSize") && (
+              <div>
+                <Label className={sectionLabel}>Font size</Label>
+                <div className="flex items-center gap-1.5">
+                  {FONT_SIZE_OPTIONS.map((size) => (
+                    <button
+                      key={size.label}
+                      onClick={() => updateFontSize(size.value)}
+                      className={pillClass(
+                        (selectedElement.fontSize || 16) === size.value
+                      )}
+                      title={`${size.label} (${size.value}px)`}
+                      data-testid={`font-size-${size.label}`}
+                    >
+                      <span className="text-xs font-semibold">
+                        {size.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(has("fontWeight") ||
+              has("fontStyle") ||
+              has("textDecoration")) && (
+              <div>
+                <Label className={sectionLabel}>Style</Label>
+                <div className="flex items-center gap-1.5">
+                  {has("fontWeight") && (
+                    <button
+                      onClick={() =>
+                        updateFontWeight(
+                          (selectedElement.fontWeight ?? "normal") === "bold"
+                            ? "normal"
+                            : "bold"
+                        )
+                      }
+                      className={cn(
+                        pillClass(selectedElement.fontWeight === "bold"),
+                        "font-bold"
+                      )}
+                      title="Bold"
+                      data-testid="font-weight-bold"
+                    >
+                      B
+                    </button>
+                  )}
+                  {has("fontStyle") && (
+                    <button
+                      onClick={() =>
+                        updateFontStyle(
+                          (selectedElement.fontStyle ?? "normal") === "italic"
+                            ? "normal"
+                            : "italic"
+                        )
+                      }
+                      className={pillClass(selectedElement.fontStyle === "italic")}
+                      title="Italic"
+                      data-testid="font-style-italic"
+                    >
+                      <Italic className="h-4 w-4" />
+                    </button>
+                  )}
+                  {has("textDecoration") && (
+                    <button
+                      onClick={() =>
+                        updateSelectedElements({
+                          textDecoration:
+                            (selectedElement.textDecoration ?? "none") ===
+                            "underline"
+                              ? "none"
+                              : "underline",
+                        })
+                      }
+                      className={pillClass(
+                        selectedElement.textDecoration === "underline"
+                      )}
+                      title="Underline"
+                      data-testid="text-decoration-underline"
+                    >
+                      <Underline className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* Opacity */}
+            {has("opacity") && (
             <div>
               <Label className={sectionLabel}>Opacity</Label>
               <Slider
@@ -618,6 +809,7 @@ export default function PropertiesPanel({
                 <span>100</span>
               </div>
             </div>
+            )}
 
             {/* Layers */}
             <div>
@@ -686,7 +878,7 @@ export default function PropertiesPanel({
           </div>
 
           {/* Color Picker Modals - Only show if the corresponding properties are visible */}
-          {!["eraser", "laser"].includes(selectedElement.type) && (
+          {has("stroke") && (
             <ColorPickerModal
               isOpen={isStrokeColorModalOpen}
               onClose={() => setIsStrokeColorModalOpen(false)}
@@ -699,9 +891,7 @@ export default function PropertiesPanel({
             />
           )}
 
-          {!["freehand", "line", "arrow", "eraser", "laser"].includes(
-            selectedElement.type
-          ) && (
+          {has("fill") && (
             <ColorPickerModal
               isOpen={isFillColorModalOpen}
               onClose={() => setIsFillColorModalOpen(false)}

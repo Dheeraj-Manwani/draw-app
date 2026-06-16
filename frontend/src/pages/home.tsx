@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { useUser, useAuth } from "@clerk/clerk-react";
+// Clerk auth temporarily disabled — using mock auth for frontend-only preview
+// import { useUser, useAuth } from "@clerk/clerk-react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
 import MetaTags from "@/components/MetaTags";
@@ -41,9 +42,57 @@ import LottieLoader from "@/components/LottieLoader";
 import { type SavedDrawing } from "@/types/canvas";
 import { coverImages } from "@/utils/DrawingIcon";
 
+// Dummy drawings used while the backend is disabled, so the page is viewable
+// without auth or API access.
+const DUMMY_DRAWINGS: SavedDrawing[] = [
+  {
+    id: "demo-1",
+    name: "System Architecture",
+    elements: [],
+    backgroundType: "dots",
+    backgroundColor: "#ffffff",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
+    coverImage: 0,
+  },
+  {
+    id: "demo-2",
+    name: "Wireframe Sketch",
+    elements: [],
+    backgroundType: "squares",
+    backgroundColor: "#ffffff",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
+    coverImage: 1,
+  },
+  {
+    id: "demo-3",
+    name: "Mind Map",
+    elements: [],
+    backgroundType: "none",
+    backgroundColor: "#ffffff",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3),
+    coverImage: 2,
+  },
+  {
+    id: "demo-4",
+    name: "Flowchart Draft",
+    elements: [],
+    backgroundType: "dots",
+    backgroundColor: "#ffffff",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 9),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 9),
+    coverImage: 3,
+  },
+];
+
 export default function Home() {
-  const { isSignedIn, isLoaded } = useUser();
-  const { getToken } = useAuth();
+  // Clerk auth temporarily disabled — treat the user as signed in
+  const isSignedIn = true;
+  const isLoaded = true;
+  // const { isSignedIn, isLoaded } = useUser();
+  // const { getToken } = useAuth();
   const [, setLocation] = useLocation();
   const [drawings, setDrawings] = useState<SavedDrawing[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -67,90 +116,100 @@ export default function Home() {
       return;
     }
 
+    // Backend disabled — load dummy drawings instead of hitting the API.
+    setDrawings(DUMMY_DRAWINGS);
+    setIsLoading(false);
+
     // Load drawings from backend API
-    const loadDrawings = async () => {
-      try {
-        const backendUrl = import.meta.env.VITE_BACKEND_URL;
-        if (!backendUrl) {
-          throw new Error("Backend URL not configured");
-        }
-
-        const token = await getToken();
-        const response = await fetch(`${backendUrl}/rooms?page=1`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch drawings: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        const drawingsWithCoverImages = (data.drawings || []).map(
-          (drawing: SavedDrawing) => ({
-            ...drawing,
-            coverImage:
-              drawing.coverImage ??
-              Math.floor(Math.random() * coverImages.length),
-          })
-        );
-        setDrawings(drawingsWithCoverImages);
-      } catch (error) {
-        console.error("Error loading drawings:", error);
-        // Fallback to empty array if API fails
-        setDrawings([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadDrawings();
-  }, [isLoaded, isSignedIn, getToken]);
+    // const loadDrawings = async () => {
+    //   try {
+    //     const backendUrl = import.meta.env.VITE_BACKEND_URL;
+    //     if (!backendUrl) {
+    //       throw new Error("Backend URL not configured");
+    //     }
+    //
+    //     const token = await getToken();
+    //     const response = await fetch(`${backendUrl}/rooms?page=1`, {
+    //       headers: {
+    //         Authorization: `Bearer ${token}`,
+    //         "Content-Type": "application/json",
+    //       },
+    //     });
+    //
+    //     if (!response.ok) {
+    //       throw new Error(`Failed to fetch drawings: ${response.statusText}`);
+    //     }
+    //
+    //     const data = await response.json();
+    //     const drawingsWithCoverImages = (data.drawings || []).map(
+    //       (drawing: SavedDrawing) => ({
+    //         ...drawing,
+    //         coverImage:
+    //           drawing.coverImage ??
+    //           Math.floor(Math.random() * coverImages.length),
+    //       })
+    //     );
+    //     setDrawings(drawingsWithCoverImages);
+    //   } catch (error) {
+    //     console.error("Error loading drawings:", error);
+    //     // Fallback to empty array if API fails
+    //     setDrawings([]);
+    //   } finally {
+    //     setIsLoading(false);
+    //   }
+    // };
+    //
+    // loadDrawings();
+  }, [isLoaded, isSignedIn]);
 
   // Create a new drawing
   const createNewDrawing = async () => {
     if (isCreatingDrawing) return;
 
     setIsCreatingDrawing(true);
-    try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
-      if (!backendUrl) {
-        throw new Error("Backend URL not configured");
-      }
 
-      const roomId = uuidv4();
-      const token = await getToken();
+    // Backend disabled — just route to a new drawing without creating a room.
+    const roomId = uuidv4();
+    setLocation(`/drawing/${roomId}`);
+    setIsCreatingDrawing(false);
 
-      // Create the room on the backend
-      const response = await fetch(`${backendUrl}/rooms`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: roomId,
-          name: "Untitled drawing",
-          coverImage: Math.floor(Math.random() * coverImages.length),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create room: ${response.statusText}`);
-      }
-
-      // Route optimistically to the new drawing
-      setLocation(`/drawing/${roomId}`);
-    } catch (error) {
-      console.error("Error creating new drawing:", error);
-      // Still route to the drawing page even if backend fails
-      const roomId = uuidv4();
-      setLocation(`/drawing/${roomId}`);
-    } finally {
-      setIsCreatingDrawing(false);
-    }
+    // try {
+    //   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+    //   if (!backendUrl) {
+    //     throw new Error("Backend URL not configured");
+    //   }
+    //
+    //   const roomId = uuidv4();
+    //   const token = await getToken();
+    //
+    //   // Create the room on the backend
+    //   const response = await fetch(`${backendUrl}/rooms`, {
+    //     method: "POST",
+    //     headers: {
+    //       Authorization: `Bearer ${token}`,
+    //       "Content-Type": "application/json",
+    //     },
+    //     body: JSON.stringify({
+    //       id: roomId,
+    //       name: "Untitled drawing",
+    //       coverImage: Math.floor(Math.random() * coverImages.length),
+    //     }),
+    //   });
+    //
+    //   if (!response.ok) {
+    //     throw new Error(`Failed to create room: ${response.statusText}`);
+    //   }
+    //
+    //   // Route optimistically to the new drawing
+    //   setLocation(`/drawing/${roomId}`);
+    // } catch (error) {
+    //   console.error("Error creating new drawing:", error);
+    //   // Still route to the drawing page even if backend fails
+    //   const roomId = uuidv4();
+    //   setLocation(`/drawing/${roomId}`);
+    // } finally {
+    //   setIsCreatingDrawing(false);
+    // }
   };
 
   // Filter drawings based on search query
@@ -186,58 +245,59 @@ export default function Home() {
       )
     );
 
-    // Update the backend with the new cover image
-    try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
-      if (backendUrl) {
-        const token = await getToken();
-        const response = await fetch(
-          `${backendUrl}/rooms/${selectedDrawingId}`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              coverImage: coverImageIndex,
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          console.error("Failed to update cover image on backend");
-          // Revert local state on failure
-          setDrawings((prev) =>
-            prev.map((drawing) =>
-              drawing.id === selectedDrawingId
-                ? {
-                    ...drawing,
-                    coverImage:
-                      drawings.find((d) => d.id === selectedDrawingId)
-                        ?.coverImage ?? 0,
-                  }
-                : drawing
-            )
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Error updating cover image:", error);
-      // Revert local state on failure
-      setDrawings((prev) =>
-        prev.map((drawing) =>
-          drawing.id === selectedDrawingId
-            ? {
-                ...drawing,
-                coverImage:
-                  drawings.find((d) => d.id === selectedDrawingId)
-                    ?.coverImage ?? 0,
-              }
-            : drawing
-        )
-      );
-    }
+    // Backend disabled — local state update above is enough for the preview.
+    // // Update the backend with the new cover image
+    // try {
+    //   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+    //   if (backendUrl) {
+    //     const token = await getToken();
+    //     const response = await fetch(
+    //       `${backendUrl}/rooms/${selectedDrawingId}`,
+    //       {
+    //         method: "PATCH",
+    //         headers: {
+    //           Authorization: `Bearer ${token}`,
+    //           "Content-Type": "application/json",
+    //         },
+    //         body: JSON.stringify({
+    //           coverImage: coverImageIndex,
+    //         }),
+    //       }
+    //     );
+    //
+    //     if (!response.ok) {
+    //       console.error("Failed to update cover image on backend");
+    //       // Revert local state on failure
+    //       setDrawings((prev) =>
+    //         prev.map((drawing) =>
+    //           drawing.id === selectedDrawingId
+    //             ? {
+    //                 ...drawing,
+    //                 coverImage:
+    //                   drawings.find((d) => d.id === selectedDrawingId)
+    //                     ?.coverImage ?? 0,
+    //               }
+    //             : drawing
+    //         )
+    //       );
+    //     }
+    //   }
+    // } catch (error) {
+    //   console.error("Error updating cover image:", error);
+    //   // Revert local state on failure
+    //   setDrawings((prev) =>
+    //     prev.map((drawing) =>
+    //       drawing.id === selectedDrawingId
+    //         ? {
+    //             ...drawing,
+    //             coverImage:
+    //               drawings.find((d) => d.id === selectedDrawingId)
+    //                 ?.coverImage ?? 0,
+    //           }
+    //         : drawing
+    //     )
+    //   );
+    // }
   };
 
   // Start editing a drawing name
@@ -250,51 +310,41 @@ export default function Home() {
   const saveDrawingName = async (drawingId: string) => {
     if (!editingName.trim()) return;
 
-    try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
-      if (backendUrl) {
-        const token = await getToken();
-        const response = await fetch(`${backendUrl}/rooms/${drawingId}`, {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: editingName.trim(),
-          }),
-        });
+    // Backend disabled — update local state only.
+    setDrawings((prev) =>
+      prev.map((drawing) =>
+        drawing.id === drawingId
+          ? { ...drawing, name: editingName.trim() }
+          : drawing
+      )
+    );
 
-        if (!response.ok) {
-          console.error("Failed to update drawing name on backend");
-        }
-      }
+    // Exit editing mode
+    setEditingDrawingId(null);
+    setEditingName("");
 
-      // Update local state
-      setDrawings((prev) =>
-        prev.map((drawing) =>
-          drawing.id === drawingId
-            ? { ...drawing, name: editingName.trim() }
-            : drawing
-        )
-      );
-
-      // Exit editing mode
-      setEditingDrawingId(null);
-      setEditingName("");
-    } catch (error) {
-      console.error("Error updating drawing name:", error);
-      // Still update local state even if backend fails
-      setDrawings((prev) =>
-        prev.map((drawing) =>
-          drawing.id === drawingId
-            ? { ...drawing, name: editingName.trim() }
-            : drawing
-        )
-      );
-      setEditingDrawingId(null);
-      setEditingName("");
-    }
+    // try {
+    //   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+    //   if (backendUrl) {
+    //     const token = await getToken();
+    //     const response = await fetch(`${backendUrl}/rooms/${drawingId}`, {
+    //       method: "PATCH",
+    //       headers: {
+    //         Authorization: `Bearer ${token}`,
+    //         "Content-Type": "application/json",
+    //       },
+    //       body: JSON.stringify({
+    //         name: editingName.trim(),
+    //       }),
+    //     });
+    //
+    //     if (!response.ok) {
+    //       console.error("Failed to update drawing name on backend");
+    //     }
+    //   }
+    // } catch (error) {
+    //   console.error("Error updating drawing name:", error);
+    // }
   };
 
   // Cancel editing

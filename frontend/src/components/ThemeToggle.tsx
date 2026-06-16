@@ -16,14 +16,14 @@ export const ThemeToggle: React.FC = () => {
       onClick={toggleTheme}
       className={cn(
         "h-9 w-9 p-0 hover:bg-muted/50 transition-colors",
-        isMobile && "h-6 w-6"
+        isMobile && "h-6 w-6",
       )}
       aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
     >
       {theme === "light" ? (
-        <Moon className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+        <Moon className="h-4 w-4 text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white transition-colors" />
       ) : (
-        <Sun className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+        <Sun className="h-4 w-4 text-gray-700 dark:text-[#ced4da] hover:text-amber-400 transition-colors" />
       )}
     </Button>
   );
